@@ -68,7 +68,7 @@
     </div>
     <div class="linked__side">
       <div class="facts">
-        <p class="facts__title" data-field="facts.label"></p>
+        <p class="facts__title"><span data-field="facts.label"></span> <span class="tag" data-field="facts.regime.class"></span></p>
         <p class="equation" data-field="facts.equation"></p>
         <dl class="params">
           <div><dt>K1</dt><dd data-field="facts.K1"></dd></div>
@@ -78,8 +78,13 @@
           <div><dt>B</dt><dd data-field="facts.B"></dd></div>
           <div><dt>W</dt><dd data-field="facts.W"></dd></div>
         </dl>
-        <p data-field="facts.regime"></p>
-        <p data-field="facts.note"></p>
+        <dl class="params params--wide">
+          <div><dt>Largest Lyapunov exponent λ₁</dt><dd data-field="facts.lambda"></dd>
+            <dd class="params__unit" data-field="facts.lambda_unit"></dd></div>
+        </dl>
+        <p data-field="facts.regime.text"></p>
+        <p class="facts__small" data-field="facts.convergence"></p>
+        <p class="facts__small" data-field="facts.note"></p>
       </div>
       <p class="hint" data-field="span"></p>
       <div class="plot-box">
@@ -92,9 +97,12 @@
 </section>
 
 <section class="panel" id="section" data-kind="figure" data-src="data/duffing/section/{preset}/{fa}/{phase}.json" aria-busy="true">
-  <h2 class="panel__title">Poincaré section</h2>
-  <p class="panel__caption">One long trajectory, sampled once per forcing cycle at the chosen phase. A cycle gives a few points; chaos gives a folded cloud.</p>
-  <div class="controls">
+  <div class="single">
+    <div class="plot plot--square" data-plot="section" role="img" aria-label="Poincaré section"></div>
+    <div class="single__side">
+      <h2 class="panel__title">Poincaré section</h2>
+      <p class="panel__caption">One long trajectory, sampled once per forcing cycle at the chosen phase. A periodic run gives a few points; a chaotic one, a folded set of points.</p>
+      <div class="controls">
 <div class="field">
   <label class="field__label" for="ctl-phase">Phase of the forcing</label>
   <div class="field__row">
@@ -118,13 +126,12 @@
     </button>
   </div>
 </div>
-  </div>
-  <div class="single">
-    <div class="plot plot--square" data-plot="section" role="img" aria-label="Poincaré section"></div>
-    <div class="facts">
-      <p class="facts__title" data-field="phase_label"></p>
-      <p data-field="count"></p>
-      <p data-field="regime"></p>
+      </div>
+      <div class="facts">
+        <p class="facts__title"><span data-field="phase_label"></span> <span class="tag" data-field="regime.class"></span></p>
+        <p data-field="count"></p>
+        <p data-field="regime.text"></p>
+      </div>
     </div>
   </div>
   <p class="panel__error" data-error hidden>Could not load this section.</p>

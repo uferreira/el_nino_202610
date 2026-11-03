@@ -11,6 +11,8 @@ Two panels share the preset and forcing controls:
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -36,28 +38,58 @@ def _labels(cfg: Config, preset: str) -> dict:
     return {"x": "x", "y": "dx/dt", "x_short": "x", "time": "Forcing cycle", "cycle": "cycle"}
 
 
-def _regime(run: model.ModelRun, cycles: int) -> str:
-    if run.repeat == 1:
-        return "Settles into a single loop: the section is one point, repeating every forcing cycle."
-    if run.repeat:
-        return (f"Settles into a cycle that repeats every {run.repeat} forcing cycles: "
-                f"the section is {run.repeat} points.")
-    return (f"Does not repeat within {cycles} forcing cycles: chaotic, or a cycle too long to see. "
-            "The section never closes on a few points; it traces the attractor's folded cross-section.")
+def _regime(run: model.ModelRun, L: dict) -> dict:
+    """Classification by the largest Lyapunov exponent, in words."""
+    lam, se = L["lambda1"], L["se"]
+    times = math.exp(lam)
+    if L["regime"] == "chaotic":
+        text = (f"\u03bb\u2081 > 0: nearby trajectories separate, about {times:.1f} times "
+                f"further apart every forcing cycle. Chaotic.")
+    elif L["regime"] == "periodic":
+        cyc = (f"a cycle of {run.repeat} forcing period{'s' if run.repeat > 1 else ''}"
+               if run.repeat else "a cycle longer than 24 forcing periods")
+        text = f"\u03bb\u2081 < 0: nearby trajectories converge onto {cyc}. Periodic."
+    else:
+        text = ("\u03bb\u2081 \u2248 0: trajectories neither separate nor converge; motion on a torus. "
+                "Quasi-periodic.")
+    if not L["converged"]:
+        text += " The estimate has not settled; treat this class as tentative."
+    return {"class": L["regime"], "text": text}
+
+
+def _lyapunov_facts(cfg: Config, preset: str, L: dict) -> dict:
+    lam, se = L["lambda1"], L["se"]
+    per_month = ""
+    if cfg.models["duffing"]["presets"][preset].get("time_unit") == "month":
+        per_month = f" ({fmt(lam / L['period'], 4, signed=True)} per month)"
+    a, b = L["window"]
+    running = ", ".join(f"{fmt(c['lambda1'], 3, signed=True)}" for c in L["running"])
+    at = ", ".join(str(c["cycles"]) for c in L["running"])
+    return {
+        "lambda": f"{fmt(lam, 3, signed=True)} \u00b1 {se:.3f}",
+        "lambda_unit": f"per forcing cycle{per_month}",
+        "convergence": (f"Mean over cycles {a} to {b}, after the transient and a first half "
+                        f"discarded. Running estimate {running} at cycles {at}"
+                        f"{'' if L['converged'] else ' (not settled)'}. "
+                        f"Check: \u03bb\u2081 + \u03bb\u2082 equals B times the period to "
+                        f"{abs(L['sum_check']):.0e}."),
+    }
 
 
 def facts(cfg: Config, preset: str, factor: float, run: model.ModelRun) -> dict:
     p = _m(cfg)["presets"][preset]
     q = run.params
-    deg = "°"
+    deg = "\u00b0"
+    L = model.load_lyapunov(cfg, preset, factor)
     return {
         "label": p["label"],
         "note": p["note"],
-        "equation": f"X″ = K1·X + K3·X³ + FA·cos(W·t {MINUS} FF) + B·X′",
+        "equation": f"X\u2033 = K1\u00b7X + K3\u00b7X\u00b3 + FA\u00b7cos(W\u00b7t {MINUS} FF) + B\u00b7X\u2032",
         "K1": fmt(q["K1"], 4), "K3": fmt(q["K3"], 4),
-        "FA": fmt(q["FA"], 4) + (f" (×{factor:g})" if factor != 1 else ""),
+        "FA": fmt(q["FA"], 4) + (f" (\u00d7{factor:g})" if factor != 1 else ""),
         "FF": fmt(q["FF"], 0) + deg, "B": fmt(q["B"], 4), "W": fmt(q["W"], 4),
-        "regime": _regime(run, model.settings(cfg, preset)["section_cycles"]),
+        "regime": _regime(run, L),
+        **_lyapunov_facts(cfg, preset, L),
     }
 
 
@@ -142,7 +174,8 @@ def section(cfg: Config, preset: str, fa: str, phase: str) -> dict:
     j = int(phase)
     deg = 360 * j // m["phases"]
     pts = run.section[j]
-    # Fixed ranges over every phase, so the axes do not jump while playing.
+    # Axes: the union of all the phase sections (not the loop), the same for
+    # every phase so they do not jump while playing.
     allx, ally = run.section[..., 0].ravel(), run.section[..., 1].ravel()
     fig = go.Figure()
     fig.add_scatter(x=rnd(pts[:, 0], DEC), y=rnd(pts[:, 1], DEC), mode="markers",
@@ -152,8 +185,8 @@ def section(cfg: Config, preset: str, fa: str, phase: str) -> dict:
     fig.update_layout(
         margin={"l": 64, "r": 16, "t": 28, "b": 52}, showlegend=False,
         hovermode="closest", hoverdistance=8, dragmode="zoom", uirevision=f"{preset}-{fa}",
-        xaxis={"title": {"text": lab["x"]}, "range": padded(allx), "nticks": 7},
-        yaxis={"title": {"text": lab["y"]}, "range": padded(ally), "nticks": 7},
+        xaxis={"title": {"text": lab["x"]}, "range": padded(allx, 0.04), "nticks": 7},
+        yaxis={"title": {"text": lab["y"]}, "range": padded(ally, 0.04), "nticks": 7},
         shapes=[{"type": "line", "xref": "paper", "x0": 0, "x1": 1, "yref": "y", "y0": 0, "y1": 0, "layer": "below"},
                 {"type": "line", "xref": "x", "x0": 0, "x1": 0, "yref": "paper", "y0": 0, "y1": 1,
                  "layer": "below", "line": {"dash": "dot"}}],
@@ -165,7 +198,7 @@ def section(cfg: Config, preset: str, fa: str, phase: str) -> dict:
         "filename": f"duffing-{preset}-x{factor:g}-section-{deg}deg",
         "phase_label": when,
         "count": f"{len(pts):,}".replace(",", "\u202f") + " dots, one per forcing cycle, from one trajectory.",
-        "regime": _regime(run, m["section_cycles"]),
+        "regime": _regime(run, model.load_lyapunov(cfg, preset, factor)),
         "figure": export(fig),
     }
 
@@ -193,7 +226,7 @@ def page(cfg: Config) -> Page:
                 build=lambda preset, fa, phase: section(cfg, preset, fa, phase),
                 controls=[phases],
                 caption=("One long trajectory, sampled once per forcing cycle at the chosen phase. "
-                         "A cycle gives a few points; chaos gives a folded cloud."))
+                         "A periodic run gives a few points; a chaotic one, a folded set of points."))
     return Page(
         slug="duffing",
         title="Duffing simulation",

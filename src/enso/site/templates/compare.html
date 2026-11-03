@@ -46,17 +46,17 @@
 
 {% set sec = page.panels[1] %}
 <section class="panel" id="{{ sec.id }}" data-kind="{{ sec.kind }}" aria-busy="true">
-  <h2 class="panel__title">{{ sec.title }}</h2>
-  <p class="panel__caption">{{ sec.caption }}</p>
-  <div class="controls">
-    {% for c in sec.controls %}{{ control(c) }}{% endfor %}
-  </div>
   <div class="single">
     <div class="plot plot--square" data-plot="section" role="img" aria-label="Annual section of the chosen records"></div>
-    <div>
+    <div class="single__side">
+      <h2 class="panel__title">{{ sec.title }}</h2>
+      <p class="panel__caption">{{ sec.caption }}</p>
+      <div class="controls">
+        {% for c in sec.controls %}{{ control(c) }}{% endfor %}
+      </div>
       {{ slot_key() }}
-      <p class="hint">Each dot is one year of a record, on the same normalised plane as the loops above.
-        Press play to step through the months and watch the clusters turn with the seasons.</p>
+      <p class="hint">Press play to step through the months: the clusters turn with the seasons.
+        Records that share a seasonal rhythm sit in the same part of the plane in the same month.</p>
     </div>
   </div>
   <p class="panel__error" data-error hidden>Could not load these records.</p>

@@ -8,7 +8,7 @@ Format::
 
     # dataset: callao
     # source: UHSLC station 093 (erddap)
-    # fetched: 2026-11-03
+    # fetched: 2026-11-03     (date of the download that last changed the data)
     period,value,gap_filled
     1970-01,1101.36,0
 
@@ -48,6 +48,12 @@ def path_for(key: str, directory: Path = SERIES_DIR) -> Path:
     return Path(directory) / f"{key}.csv"
 
 
+def data_lines(record: Record) -> list[str]:
+    """The observation rows exactly as written to the file."""
+    return [f"{int(y):04d}-{int(m):02d},{float(v):.4f},{int(bool(g))}"
+            for y, m, v, g in zip(record.year, record.month, record.value, record.gap_filled)]
+
+
 def write(record: Record, directory: Path = SERIES_DIR) -> Path:
     path = path_for(record.key, directory)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,9 +62,8 @@ def write(record: Record, directory: Path = SERIES_DIR) -> Path:
         f"# source: {record.source}",
         f"# fetched: {record.fetched}",
         "period,value,gap_filled",
+        *data_lines(record),
     ]
-    for y, m, v, g in zip(record.year, record.month, record.value, record.gap_filled):
-        lines.append(f"{int(y):04d}-{int(m):02d},{float(v):.4f},{int(bool(g))}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return path
 

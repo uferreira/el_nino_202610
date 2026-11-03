@@ -41,9 +41,13 @@ Y_TITLE = "(dx/dt) / σx, per month"
 class Norm:
     """A record on the normalised plane: fine loop, monthly points, periods."""
 
-    def __init__(self, key, label, periods, T, V, ndots, provisional_from, mean, sigma, short=None):
+    def __init__(self, key, label, periods, T, V, ndots, provisional_from, mean, sigma,
+                 short=None, anomaly=None):
         self.key, self.label, self.periods, self.ndots = key, label, periods, ndots
         self.short = short or label
+        # Time strip: the filtered anomaly (seasonal cycle removed) over its own
+        # standard deviation; None for the model, which has no real calendar.
+        self.anom = None if anomaly is None else np.asarray(anomaly) / float(np.std(anomaly, ddof=1))
         self.provisional_from = provisional_from      # month index, or None (model)
         self.mean, self.sigma = mean, sigma
         self.x = (np.asarray(T) - mean) / sigma
@@ -55,7 +59,7 @@ def observed(cfg: Config, key: str) -> Norm:
     ps = phase_series(cfg, key)
     T = ps.T
     return Norm(key, ps.dataset.label, ps.periods, T, ps.V, ps.ndots,
-                first_provisional(ps, cfg), float(T.mean()), float(T.std(ddof=1)))
+                first_provisional(ps, cfg), float(T.mean()), float(T.std(ddof=1)), anomaly=ps.anomaly)
 
 
 def model_record(cfg: Config) -> Norm:
@@ -138,9 +142,11 @@ def label_annotation(r: Norm) -> dict:
 
 
 def time_traces(r: Norm) -> list[dict]:
+    if r.anom is None:
+        return []
     dx = DEC[0]
     return [
-        go.Scatter(x=r.periods, y=rnd(r.xm, dx), mode="lines", line={"width": 1.5},
+        go.Scatter(x=r.periods, y=rnd(r.anom, dx), mode="lines", line={"width": 1.5},
                    name=r.label, hovertemplate=f"%{{y:+.2f}} σ<extra>{r.label}</extra>",
                    meta={"role": "series"}).to_plotly_json(),
         go.Scatter(x=[], y=[], mode="lines", line={"width": 3}, hoverinfo="skip",
@@ -178,7 +184,8 @@ def build_record(cfg: Config, r: Norm) -> dict:
         "label_annotation": label_annotation(r),
         # Axis extents with margins; the page uses the union over the chosen records.
         "extent": {"x": padded(r.x, 0.05, extra_high=0.18), "y": padded(r.y, 0.06),
-                   "xm": padded(r.xm, 0.06)},
+                   "ta": None if r.anom is None else padded(r.anom, 0.06)},
+        "calendar": r.anom is not None,       # on the time strip, linked by date
         "traces": {"loop": loop_traces(r), "time": time_traces(r), "section": section_traces(r)},
     }
 
@@ -205,16 +212,17 @@ def build_frame(cfg: Config, records: list[Norm]) -> dict:
     section = go.Figure(layout={**square, "hovermode": "closest", "hoverdistance": 12,
                                 "dragmode": "zoom", "uirevision": "compare-section"})
 
-    first = min(r.periods[0] for r in records)
-    last = max(r.periods[-1] for r in records)
+    timed = [r for r in records if r.anom is not None]
+    first = min(r.periods[0] for r in timed)
+    last = max(r.periods[-1] for r in timed)
     time_end = month_after(last, 9)
     time = go.Figure(layout={
         "margin": {"l": 64, "r": 16, "t": 28, "b": 28}, "showlegend": False,
         "hovermode": "x unified", "dragmode": "select", "selectdirection": "h", "uirevision": "compare",
         "xaxis": {"range": [first, time_end], "showspikes": True, "spikemode": "across",
                   "spikethickness": 1, "spikedash": "solid", "hoverformat": "%b %Y"},
-        "yaxis": {"title": {"text": X_TITLE}, "fixedrange": True, "nticks": 5,
-                  "range": padded(np.concatenate([r.xm for r in records]), 0.06)},
+        "yaxis": {"title": {"text": "Filtered anomaly / σ"}, "fixedrange": True, "nticks": 5,
+                  "range": padded(np.concatenate([r.anom for r in timed]), 0.06)},
         "shapes": [{"type": "line", "xref": "paper", "x0": 0, "x1": 1, "yref": "y", "y0": 0, "y1": 0,
                     "layer": "below"}],
         "meta": {"narrow_top": 8},
@@ -268,9 +276,11 @@ y<sub>n</sub> = (dx/dt) / σ<sub>x</sub>, with the mean and standard deviation
 σ<sub>x</sub> of that record's filtered values over its analysis window. Both axes
 use the same σ<sub>x</sub>, so each loop keeps its shape: a taller loop
 is a record that moves faster relative to its own typical swing.</p>
-<p>The model has no real calendar: its months are laid on the same calendar
-as NINO1+2 so the time strip can show it, but its events are not the
-observed ones. Compare its shape and its annual sections, not its timing.</p>
+<p>The time strip shows each record's filtered anomaly (seasonal cycle
+removed) divided by that anomaly's own standard deviation, so El Niño events
+line up across records whatever their units or seasonal swing. The model has
+no real calendar, so it is on the loops and the section but not on the time
+strip.</p>
 <p>The annual section keeps one point per year, in the chosen calendar month.
 Records that share a seasonal rhythm cluster in the same part of the plane
 for the same month.</p>
@@ -285,7 +295,8 @@ def page(cfg: Config) -> Page:
     section = Panel(id="compare-section", kind="compare-section", title="Annual section",
                     data="data/compare/{a}.json", files=lambda: {},
                     controls=[Control("month", "Month", months, "0", play=True)],
-                    caption="One point per year in the chosen month, for each record.")
+                    caption=("One point per year in the chosen month, for each record, on the same "
+                             "normalised plane as the loops."))
     return Page(
         slug="compare",
         title="Compare datasets",

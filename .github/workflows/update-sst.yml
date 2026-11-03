@@ -1,0 +1,71 @@
+name: Update SST
+
+# NOAA CPC SST indices every 5 days. Sea level (UHSLC) is updated elsewhere:
+# UHSLC drops connections from GitHub-hosted runners (see README, "Updates").
+on:
+  schedule:
+    # 06:00 UTC on days 1, 6, 11, 16, 21, 26 (and 31): "*/5" counts from day 1
+    # and restarts each month, so the gap after the 26th or 31st is 5 or 1 days.
+    - cron: '0 6 */5 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Never two data updates at once (they would race on the push).
+concurrency:
+  group: data-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: pip install -e ".[test]"
+
+      # A failed download keeps the committed record; the step's status is
+      # kept so the run can still publish the rest, then turn red at the end.
+      - name: Fetch SST (NOAA CPC)
+        id: fetch
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set +e
+          python -m enso.fetch --source-type noaa_sst
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild the site
+        run: python -m enso.build
+
+      # The analysis and build tests check the new data before it is published
+      # (browser tests run in CI on every push).
+      - name: Test the new data
+        run: python -m pytest -q -m "not browser"
+
+      - name: Commit and push if anything changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/series docs
+          if git diff --cached --quiet; then
+            echo "No new SST data: nothing to commit."
+            exit 0
+          fi
+          LAST=$(tail -n 1 data/series/nino12.csv | cut -d, -f1)
+          git commit -m "data: SST through ${LAST} [auto]"
+          git pull --rebase
+          git push
+
+      - name: Fail if a download failed
+        if: steps.fetch.outputs.status != '0'
+        run: |
+          echo "::error::SST download failed; the committed record was kept."
+          exit 1

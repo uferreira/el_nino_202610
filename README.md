@@ -70,3 +70,15 @@ held, and the other datasets still update.
 
 GitHub Pages serves `docs/` from `main`. CI fails if `docs/` differs from a fresh
 build of the committed code and data.
+
+## Updates
+
+- **SST** (NOAA CPC): `.github/workflows/update-sst.yml` runs at 06:00 UTC every
+  5 days (days 1, 6, 11, 16, 21, 26 and 31 of each month) and on demand. It
+  fetches the SST datasets, rebuilds the site, runs the analysis and build
+  tests, and commits `data/series` and `docs` only if a record changed.
+  A failed download keeps the committed record and turns the run red.
+- **Sea level** (UHSLC): not automated yet. UHSLC drops connections from
+  GitHub-hosted runners, so it needs another route (to be decided). Until
+  then: `python -m enso.fetch --source-type uhslc && python -m enso.build`,
+  then commit `data/series` and `docs`.

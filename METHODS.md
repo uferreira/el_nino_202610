@@ -62,12 +62,16 @@ month, not a filtered one.
 ## Running event
 
 **`current_event.threshold: 1.0` °C**: the 2025-26 highlight is switched on
-when the latest monthly NINO1+2 anomaly (against the window climatology for
-that calendar month) is at least 1.0 °C, the lower bound of the "moderate"
-category of Peru's coastal El Niño index (ICEN, ENFEN). The ICEN itself is a
-3-month running mean on another climatology; here a single month is used so
-the highlight follows the latest data. In September 2026 the anomaly is
-+4.60 °C (NOAA, against 1991 to 2020: +4.69 °C).
+when the latest monthly NINO1+2 anomaly is at least 1.0 °C.
+
+The value is borrowed from ENFEN's coastal El Niño index (ICEN; ENFEN, Nota
+Técnica 01-2012), whose categories are weak 0.4 to 1.0, moderate 1.0 to 1.7,
+strong 1.7 to 3.0 and extraordinary above 3.0 °C. It is used here only as a
+trigger. Our value is **not an ICEN**: the ICEN is a 3-month running mean of
+ERSST anomalies of NINO1+2, while ours is a single month of NOAA OISST
+(`sstoi.indices`) against the analysis window's climatology for that
+calendar month, so it is never reported as an ICEN class. In September 2026
+it is +4.60 °C (NOAA's own anomaly, against 1991 to 2020: +4.69 °C).
 
 ## Compare: normalisation
 
@@ -77,6 +81,11 @@ window (as in the old `compare.html`). Using σx on both axes keeps each
 loop's shape, so a taller loop moves faster relative to its own typical
 swing. The alternative y / σ(dx/dt) was rejected: it makes every loop equally
 tall and hides that difference.
+
+The time strip instead shows each record's filtered anomaly (step 2 of the
+filter, seasonal cycle removed) divided by that anomaly's own standard
+deviation, so events line up across records whatever their seasonal swing.
+The model has no real calendar and is left off the time strip.
 
 ## Duffing model
 
@@ -90,9 +99,26 @@ from `el_nino/src/el_nino/duffing.py`), integrated with scipy RK45
 - Each run is **one long trajectory**: 100 forcing cycles discarded, then
   1500 cycles kept. The Poincaré section is that trajectory sampled once per
   forcing cycle at a chosen phase (12 phases), not a cloud of starting points.
-- A run "repeats every n cycles" when its section points recur after n cycles
-  to within 1e-4 of the trajectory's size (n up to 24); otherwise it is
-  reported as not repeating (chaotic, or a longer cycle).
+- **Lyapunov exponents** (Benettin et al. 1980): the trajectory is integrated
+  with two tangent vectors through the variational equations
+  δX′ = δY, δY′ = (K1 + 3K3·X²)·δX + B·δY (RK45, rtol 1e-9), and the vectors
+  are re-orthonormalised (QR) once per forcing cycle. 1500 cycles are
+  integrated after the transient; the first half is discarded as well,
+  because some runs stay chaotic for hundreds of cycles before settling
+  (transient chaos), and the exponents are the mean over the second half.
+  The standard error comes from 20 blocks. The estimate counts as converged
+  when the two halves of that window agree within 6 standard errors (or the
+  zero band). Built-in check: the flow's divergence is B everywhere, so
+  λ1 + λ2 = B × period exactly; every run meets it to about 1e-9. A second
+  check: a stable periodic orbit whose Floquet multipliers are complex
+  (it spirals in) has λ1 = λ2 = B × period / 2. The El Niño fit at ×1.5
+  (−2.128 = −0.35465 × 12 / 2) and the chaotic benchmark at ×1.25 and ×1.5
+  (−0.063 ≈ −0.02 × 2π / 2) show exactly that.
+- **Classification** by the largest exponent λ1, per forcing cycle:
+  chaotic if λ1 > max(3 SE, 0.01), periodic if λ1 < −max(3 SE, 0.01),
+  quasi-periodic otherwise. A separate check on the section run (points
+  recurring after n cycles, n up to 24) gives the period of periodic runs;
+  it agrees with the classification for every run.
 - Runs are cached in `data/model/` (`python -m enso.model`). A chaotic
   trajectory depends on every last bit of floating-point arithmetic, so the
   cache, not a rerun on another machine, defines the published pages.

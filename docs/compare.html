@@ -130,9 +130,12 @@
 </section>
 
 <section class="panel" id="compare-section" data-kind="compare-section" aria-busy="true">
-  <h2 class="panel__title">Annual section</h2>
-  <p class="panel__caption">One point per year in the chosen month, for each record.</p>
-  <div class="controls">
+  <div class="single">
+    <div class="plot plot--square" data-plot="section" role="img" aria-label="Annual section of the chosen records"></div>
+    <div class="single__side">
+      <h2 class="panel__title">Annual section</h2>
+      <p class="panel__caption">One point per year in the chosen month, for each record, on the same normalised plane as the loops.</p>
+      <div class="controls">
 <div class="field">
   <label class="field__label" for="ctl-month">Month</label>
   <div class="field__row">
@@ -156,18 +159,15 @@
     </button>
   </div>
 </div>
-  </div>
-  <div class="single">
-    <div class="plot plot--square" data-plot="section" role="img" aria-label="Annual section of the chosen records"></div>
-    <div>
+      </div>
       <ul class="key key--slots" aria-label="Records">
   <li data-slot-key="A" hidden><span class="swatch swatch--slot"></span><span><b>A</b> <span data-slot-label></span></span></li>
   <li data-slot-key="B" hidden><span class="swatch swatch--slot"></span><span><b>B</b> <span data-slot-label></span></span></li>
   <li data-slot-key="C" hidden><span class="swatch swatch--slot"></span><span><b>C</b> <span data-slot-label></span></span></li>
 </ul>
 
-      <p class="hint">Each dot is one year of a record, on the same normalised plane as the loops above.
-        Press play to step through the months and watch the clusters turn with the seasons.</p>
+      <p class="hint">Press play to step through the months: the clusters turn with the seasons.
+        Records that share a seasonal rhythm sit in the same part of the plane in the same month.</p>
     </div>
   </div>
   <p class="panel__error" data-error hidden>Could not load these records.</p>
@@ -182,9 +182,11 @@ y<sub>n</sub> = (dx/dt) / σ<sub>x</sub>, with the mean and standard deviation
 σ<sub>x</sub> of that record's filtered values over its analysis window. Both axes
 use the same σ<sub>x</sub>, so each loop keeps its shape: a taller loop
 is a record that moves faster relative to its own typical swing.</p>
-<p>The model has no real calendar: its months are laid on the same calendar
-as NINO1+2 so the time strip can show it, but its events are not the
-observed ones. Compare its shape and its annual sections, not its timing.</p>
+<p>The time strip shows each record's filtered anomaly (seasonal cycle
+removed) divided by that anomaly's own standard deviation, so El Niño events
+line up across records whatever their units or seasonal swing. The model has
+no real calendar, so it is on the loops and the section but not on the time
+strip.</p>
 <p>The annual section keeps one point per year, in the chosen calendar month.
 Records that share a seasonal rhythm cluster in the same part of the plane
 for the same month.</p>

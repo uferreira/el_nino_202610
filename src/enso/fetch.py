@@ -3,9 +3,14 @@
     python -m enso.fetch            # all datasets
     python -m enso.fetch callao     # some of them
 
+    python -m enso.fetch --source-type noaa_sst     # by source (the CI SST update)
+
 A dataset whose new record would end earlier than the committed one is held
 (the old file stays), so a partial server response never moves the site
-back in time. Other datasets are still updated.
+back in time. A download with the same values leaves the file untouched, so
+its "fetched" date is when the data last changed and an update with nothing
+new commits nothing. Other datasets are always tried. Exit code 1 if any
+download failed.
 """
 
 from __future__ import annotations
@@ -78,6 +83,8 @@ def fetch_one(ds: Dataset, cfg: Config, directory: Path = SERIES_DIR) -> str:
         if record.last_period < old.last_period:
             return (f"HELD   {ds.key}: new record ends {record.last_period}, "
                     f"committed one ends {old.last_period}")
+        if series.data_lines(record) == series.data_lines(old):
+            return f"SAME   {ds.key}: no change, still through {old.last_period}"
     series.write(record, directory)
     return f"OK     {ds.key}: {len(record)} months through {record.last_period}"
 
@@ -85,9 +92,12 @@ def fetch_one(ds: Dataset, cfg: Config, directory: Path = SERIES_DIR) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("keys", nargs="*", help="dataset keys (default: all)")
+    parser.add_argument("--source-type", choices=sorted(SOURCES),
+                        help="only the datasets with this source type")
     args = parser.parse_args(argv)
     cfg = load_config()
-    wanted = args.keys or [d.key for d in cfg.datasets]
+    wanted = args.keys or [d.key for d in cfg.datasets
+                           if args.source_type in (None, d.source["type"])]
     failed = 0
     for key in wanted:
         ds = cfg.dataset(key)

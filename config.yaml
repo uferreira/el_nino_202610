@@ -122,7 +122,9 @@ events:
 
 # The running event is highlighted when the page opens if the latest observed
 # anomaly of `dataset` (vs the window climatology for that calendar month) is
-# at least `threshold`, in that dataset's unit. Why 1.0 °C: see METHODS.md.
+# at least `threshold`, in that dataset's unit. 1.0 °C is borrowed from ENFEN's
+# ICEN "moderate" bound as a trigger only; our monthly value is not an ICEN
+# (METHODS.md, "Running event").
 current_event:
   label: "2025-26"
   dataset: nino12
@@ -178,3 +180,12 @@ models:
         y0: 0.0
         time_unit: ""
     compare_preset: alado     # the model offered on the Compare page (factor 1.0)
+    # Largest Lyapunov exponent (Benettin, variational equations), per run.
+    lyapunov:
+      cycles: 1500            # forcing cycles integrated after the transient; the first
+                              # half is discarded too (transient chaos can last hundreds),
+                              # the exponent is the mean over the second half
+      blocks: 20              # for the standard error of the estimate
+      zero_band: 0.01         # |lambda| per forcing cycle below this (and 3 SE) reads as 0
+      rtol: 1.0e-9
+      atol: 1.0e-11

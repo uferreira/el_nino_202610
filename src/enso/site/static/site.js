@@ -465,9 +465,11 @@
   function unionExtent(slots) {
     if (!slots.length) return null;
     var out = {};
-    ['x', 'y', 'xm'].forEach(function (k) {
-      out[k] = [Math.min.apply(null, slots.map(function (s) { return s.data.extent[k][0]; })),
-                Math.max.apply(null, slots.map(function (s) { return s.data.extent[k][1]; }))];
+    ['x', 'y', 'ta'].forEach(function (k) {
+      var ext = slots.map(function (s) { return s.data.extent[k]; }).filter(Boolean);
+      if (!ext.length) return;
+      out[k] = [Math.min.apply(null, ext.map(function (e) { return e[0]; })),
+                Math.max.apply(null, ext.map(function (e) { return e[1]; }))];
     });
     return out;
   }
@@ -494,7 +496,7 @@
       var ext = unionExtent(state.slots);
       if (ext) {
         loopFig.layout.xaxis.range = ext.x; loopFig.layout.yaxis.range = ext.y;
-        timeFig.layout.yaxis.range = ext.xm;
+        if (ext.ta) timeFig.layout.yaxis.range = ext.ta;
       }
       if (provFrom) timeFig.layout.shapes.push({
         type: 'rect', name: 'provisional', xref: 'x', yref: 'paper', layer: 'below',
@@ -516,11 +518,12 @@
     function applyHighlight() {
       var h = highlight;
       state.slots.forEach(function (s) {
-        var d = s.data, idx = h ? rangeToIndices(d.periods, [h.from, h.to]) : null;
+        var d = s.data, idx = h && d.calendar ? rangeToIndices(d.periods, [h.from, h.to]) : null;
         var seg = idx ? loopSegments(d.loop, d.ndots, d.provisional_from, idx.i0, idx.i1)
                       : { solid: { x: [], y: [] }, prov: { x: [], y: [] } };
         setXY(loop, { role: 'highlight', provisional: false, slot: s.slot }, seg.solid.x, seg.solid.y);
         setXY(loop, { role: 'highlight', provisional: true, slot: s.slot }, seg.prov.x, seg.prov.y);
+        if (!d.calendar) return;            // the model is not on the time strip
         var src = time.data[traceIndex(time, { role: 'series', slot: s.slot })];
         setXY(time, { role: 'highlight', slot: s.slot },
               idx ? src.x.slice(idx.i0, idx.i1 + 1) : [], idx ? src.y.slice(idx.i0, idx.i1 + 1) : []);
@@ -549,7 +552,7 @@
 
     function cursorAt(period) {
       state.slots.forEach(function (s) {
-        var m = period ? s.data.periods.indexOf(period) : -1;
+        var m = period && s.data.calendar ? s.data.periods.indexOf(period) : -1;
         var hv = s.data.month;
         setXY(loop, { role: 'cursor', slot: s.slot }, m >= 0 ? [hv.x[m]] : [], m >= 0 ? [hv.y[m]] : []);
       });
@@ -565,7 +568,8 @@
       time.on('plotly_unhover', function () { cursorAt(null); });
       loop.on('plotly_hover', function (ev) {
         var p = find(ev.points, function (q) { return (q.data.meta || {}).role === 'hover'; });
-        if (p) Plotly.Fx.hover(time, { xval: p.customdata[1] }, ['xy']);
+        var s = p && find(state.slots, function (x) { return x.slot === p.data.meta.slot; });
+        if (s && s.data.calendar) Plotly.Fx.hover(time, { xval: p.customdata[1] }, ['xy']);
       });
       loop.on('plotly_unhover', function () { Plotly.Fx.unhover(time); });
       time.on('plotly_selected', function (ev) {

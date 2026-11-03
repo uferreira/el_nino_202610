@@ -59,3 +59,53 @@ def test_a_small_run_reproduces_its_own_cache(tmp_path, monkeypatch):
     b = model.load(cfg, "alado", 1.0, directory=tmp_path, compute_missing=False)
     np.testing.assert_array_equal(a.section, b.section)
     assert model.cache_path("alado", 1.0, tmp_path).exists()
+
+
+# ---- Lyapunov exponents -------------------------------------------------------
+
+def test_periodic_case_has_a_negative_exponent():
+    """FA x1.5 of the El Niño fit locks onto the forcing (one point per section)."""
+    L = model.lyapunov(CFG, "alado", 1.5, cycles=80)
+    assert L["regime"] == "periodic" and L["lambda1"] < 0
+
+
+def test_chaotic_benchmark_has_a_positive_exponent():
+    """x'' + 0.02x' - x + x^3 = 3 sin t is the textbook strange attractor."""
+    L = model.lyapunov(CFG, "chaos", 1.0, cycles=300)
+    assert L["regime"] == "chaotic" and L["lambda1"] > 0.2
+
+
+@pytest.mark.parametrize("preset,factor", model.all_runs(CFG))
+def test_exponents_are_cached_converged_and_sum_to_the_divergence(preset, factor):
+    assert model.lyapunov_is_current(CFG, preset, factor)
+    L = model.load_lyapunov(CFG, preset, factor, compute_missing=False)
+    assert L["converged"]
+    # The flow's divergence is B everywhere: lambda1 + lambda2 = B x period.
+    assert abs(L["sum_check"]) < 1e-6
+    # lambda1 is the larger, except within noise when the two are equal (a
+    # periodic orbit with complex Floquet multipliers: both are B x period / 2).
+    assert L["lambda1"] >= L["lambda2"] - 3 * L["se"]
+
+
+@pytest.mark.parametrize("preset,factor", model.all_runs(CFG))
+def test_classification_agrees_with_the_section_repeat_check(preset, factor):
+    """Periodic by the exponent <=> the long section run repeats (within 24 cycles)."""
+    L = model.load_lyapunov(CFG, preset, factor, compute_missing=False)
+    run = model.load(CFG, preset, factor, compute_missing=False)
+    assert (L["regime"] == "periodic") == (run.repeat is not None)
+
+
+def test_classify_bands():
+    assert model.classify(0.5, 0.01, 0.01) == "chaotic"
+    assert model.classify(-0.5, 0.01, 0.01) == "periodic"
+    assert model.classify(0.005, 0.001, 0.01) == "quasi-periodic"
+    assert model.classify(0.05, 0.03, 0.01) == "quasi-periodic"   # within 3 SE of zero
+
+
+def test_spiralling_periodic_orbits_have_equal_exponents():
+    """A stable periodic orbit with complex Floquet multipliers contracts
+    equally in every direction: lambda1 = lambda2 = B x period / 2."""
+    for preset, factor in [("alado", 1.5), ("chaos", 1.25), ("chaos", 1.5)]:
+        L = model.load_lyapunov(CFG, preset, factor, compute_missing=False)
+        half = model.run_params(CFG, preset, factor)["B"] * L["period"] / 2
+        assert L["lambda1"] == pytest.approx(half, abs=3 * L["se"] + 2e-3)

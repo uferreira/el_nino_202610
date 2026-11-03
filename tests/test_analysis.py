@@ -70,6 +70,24 @@ def test_fetch_holds_a_record_that_would_move_back(tmp_path, monkeypatch):
     assert len(series.read("nino12", tmp_path)) == 101
 
 
+def test_fetch_leaves_an_unchanged_record_alone(tmp_path, monkeypatch):
+    """Same values: the file (and its fetched date) is not rewritten."""
+    ds = CFG.dataset("nino12")
+    old = _record("nino12", n=100)
+    old.fetched = "2026-01-01"
+    series.write(old, tmp_path)
+    monkeypatch.setitem(fetch.SOURCES, "noaa_sst", lambda ds, cfg: _record("nino12", n=100))
+    assert fetch.fetch_one(ds, CFG, tmp_path).startswith("SAME")
+    assert series.read("nino12", tmp_path).fetched == "2026-01-01"
+
+
+def test_fetch_can_select_by_source_type(monkeypatch):
+    seen = []
+    monkeypatch.setattr(fetch, "fetch_one", lambda ds, cfg: seen.append(ds.key) or "OK")
+    assert fetch.main(["--source-type", "noaa_sst"]) == 0
+    assert seen == [d.key for d in CFG.datasets if d.source["type"] == "noaa_sst"]
+
+
 # ---- committed data -----------------------------------------------------
 
 @pytest.mark.parametrize("ds", CFG.datasets, ids=lambda d: d.key)

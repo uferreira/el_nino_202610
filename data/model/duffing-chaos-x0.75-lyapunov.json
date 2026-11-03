@@ -1,0 +1,55 @@
+{
+ "key": {
+  "params": {
+   "K1": 1.0,
+   "K3": -1.0,
+   "FA": 2.25,
+   "FF": 90.0,
+   "B": -0.02,
+   "W": 1.0
+  },
+  "x0": 1.0,
+  "y0": 0.0,
+  "transient_cycles": 100,
+  "lyapunov": {
+   "cycles": 1500,
+   "blocks": 20,
+   "zero_band": 0.01,
+   "rtol": 1e-09,
+   "atol": 1e-11
+  },
+  "method": 2
+ },
+ "lambda1": 0.7010766775007604,
+ "lambda2": -0.8267403852973022,
+ "se": 0.025586900310210957,
+ "per": "forcing cycle",
+ "period": 6.283185307179586,
+ "cycles": 1500,
+ "window": [
+  751,
+  1500
+ ],
+ "running": [
+  {
+   "cycles": 937,
+   "lambda1": 0.7233529351748521
+  },
+  {
+   "cycles": 1125,
+   "lambda1": 0.6759523088970942
+  },
+  {
+   "cycles": 1312,
+   "lambda1": 0.7035351452002916
+  },
+  {
+   "cycles": 1500,
+   "lambda1": 0.7010766775007602
+  }
+ ],
+ "converged": true,
+ "first_half_lambda1": 0.6469805381290773,
+ "sum_check": -1.6529500546091924e-09,
+ "regime": "chaotic"
+}

@@ -220,11 +220,37 @@ def test_duffing_section_axes_do_not_move_between_phases(site):
     assert len(ranges) == 1
 
 
-def test_duffing_trajectory_reports_the_regime(site):
+def test_duffing_reports_the_lyapunov_class_and_its_convergence(site):
     data = _load(site, "data/duffing/trajectory/alado/1.5.json")
-    assert "repeats every" in data["facts"]["regime"] or "single loop" in data["facts"]["regime"]
+    assert data["facts"]["regime"]["class"] == "periodic"
+    assert data["facts"]["lambda"].startswith("\u2212")
     data = _load(site, "data/duffing/trajectory/chaos/1.json")
-    assert "Does not repeat" in data["facts"]["regime"]
+    assert data["facts"]["regime"]["class"] == "chaotic"
+    assert data["facts"]["lambda"].startswith("+")
+    assert "Running estimate" in data["facts"]["convergence"]
+    sec = _load(site, "data/duffing/section/chaos/1/0.json")
+    assert sec["regime"]["class"] == "chaotic"
+
+
+def test_duffing_section_axes_are_the_union_of_all_phases(site):
+    import numpy as np
+    run = model.load(CFG, "alado", 1.0, compute_missing=False)
+    lo, hi = run.section[..., 0].min(), run.section[..., 0].max()
+    xr = _load(site, "data/duffing/section/alado/1/0.json")["figure"]["layout"]["xaxis"]["range"]
+    span = hi - lo
+    assert xr == pytest.approx([lo - 0.04 * span, hi + 0.04 * span])
+
+
+def test_compare_time_strip_is_the_normalised_anomaly_without_the_model(site):
+    import numpy as np
+    callao = _load(site, "data/compare/callao.json")
+    (series_t, _) = callao["traces"]["time"]
+    y = np.array(series_t["y"])
+    assert abs(y.mean()) < 0.05 and y.std(ddof=1) == pytest.approx(1, abs=1e-3)
+    ps = phase.phase_series(CFG, "callao")
+    np.testing.assert_allclose(y, ps.anomaly / ps.anomaly.std(ddof=1), atol=1e-3)
+    model_rec = _load(site, "data/compare/model.json")
+    assert model_rec["traces"]["time"] == [] and model_rec["calendar"] is False
 
 
 # ---- whole site -----------------------------------------------------------
