@@ -149,6 +149,11 @@ class Publisher:
             raise PublishError("the working tree has uncommitted changes:\n  "
                                + "\n  ".join(self._changes()))
         if self.push:
+            upstream = subprocess.run(["git", "rev-parse", "--abbrev-ref", "@{u}"], cwd=self.root,
+                                      capture_output=True, text=True)
+            if upstream.returncode != 0:
+                raise PublishError("the branch has no upstream to push to; "
+                                   "run 'git push -u origin main' once")
             if self.git("pull", "--rebase", check=False).returncode != 0:
                 self.git("rebase", "--abort", check=False)
                 raise PublishError("git pull --rebase failed before the update; "

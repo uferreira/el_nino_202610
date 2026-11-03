@@ -134,6 +134,12 @@ def test_a_file_the_writer_does_not_own_stops_the_run(repos):
     assert (repos.ci / "data" / "series" / "sst.csv").read_text() == "sst v0\n"   # restored
 
 
+def test_a_branch_without_upstream_stops_the_run(repos):
+    _git(repos.ci, "branch", "--unset-upstream")
+    with pytest.raises(publish.PublishError, match="no upstream"):
+        Fake(repos.ci, "noaa_sst", "v1").run()
+
+
 def test_a_dirty_tree_stops_the_run(repos):
     (repos.ci / "notes.txt").write_text("work in progress\n")
     with pytest.raises(publish.PublishError, match="uncommitted"):
