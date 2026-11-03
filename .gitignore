@@ -9,8 +9,9 @@ __pycache__/
 venv/
 .venv/
 
-# Local screenshots
+# Local screenshots and update logs
 screenshots/
+logs/
 
 # OS / editor
 .DS_Store

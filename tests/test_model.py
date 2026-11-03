@@ -95,6 +95,29 @@ def test_classification_agrees_with_the_section_repeat_check(preset, factor):
     assert (L["regime"] == "periodic") == (run.repeat is not None)
 
 
+@pytest.mark.parametrize("preset,factor", model.all_runs(CFG))
+def test_a_second_integrator_at_tighter_tolerance_agrees(preset, factor):
+    """DOP853 at 10x tighter tolerance: same class, lambda1 within 4 combined SE."""
+    L = model.load_lyapunov(CFG, preset, factor, compute_missing=False)
+    c = L["check"]
+    assert c["integrator"] == {"method": "DOP853", "rtol": L["integrator"]["rtol"] / 10,
+                               "atol": L["integrator"]["atol"] / 10}
+    assert c["regime"] == L["regime"] and c["converged"]
+    assert abs(c["lambda1"] - L["lambda1"]) <= 4 * math.hypot(L["se"], c["se"]) + 1e-3
+
+
+def test_kaplan_yorke_dimension():
+    assert model.kaplan_yorke(-0.1, -0.3) == (0.0, 0.0)          # periodic: points
+    d, se = model.kaplan_yorke(0.5, -1.5, 0.01)
+    assert d == pytest.approx(1 + 0.5 / 1.5)
+    # dD/dlambda1 with lambda1 + lambda2 = -1 fixed, by finite differences
+    h = 1e-6
+    slope = (model.kaplan_yorke(0.5 + h, -1.5 - h)[0] - model.kaplan_yorke(0.5 - h, -1.5 + h)[0]) / (2 * h)
+    assert se == pytest.approx(slope * 0.01, rel=1e-5)
+    L = model.load_lyapunov(CFG, "chaos", 1.0, compute_missing=False)
+    assert 1.5 < model.kaplan_yorke(L["lambda1"], L["lambda2"])[0] < 2.0
+
+
 def test_classify_bands():
     assert model.classify(0.5, 0.01, 0.01) == "chaotic"
     assert model.classify(-0.5, 0.01, 0.01) == "periodic"

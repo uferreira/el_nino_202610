@@ -65,7 +65,7 @@ month, not a filtered one.
 when the latest monthly NINO1+2 anomaly is at least 1.0 °C.
 
 The value is borrowed from ENFEN's coastal El Niño index (ICEN; ENFEN, Nota
-Técnica 01-2012), whose categories are weak 0.4 to 1.0, moderate 1.0 to 1.7,
+Técnica ENFEN 01-2012, **to verify**: citation from memory), whose categories are weak 0.4 to 1.0, moderate 1.0 to 1.7,
 strong 1.7 to 3.0 and extraordinary above 3.0 °C. It is used here only as a
 trigger. Our value is **not an ICEN**: the ICEN is a 3-month running mean of
 ERSST anomalies of NINO1+2, while ours is a single month of NOAA OISST
@@ -114,11 +114,34 @@ from `el_nino/src/el_nino/duffing.py`), integrated with scipy RK45
   (it spirals in) has λ1 = λ2 = B × period / 2. The El Niño fit at ×1.5
   (−2.128 = −0.35465 × 12 / 2) and the chaotic benchmark at ×1.25 and ×1.5
   (−0.063 ≈ −0.02 × 2π / 2) show exactly that.
+- **Robustness**: every run is estimated a second time with another
+  integrator (DOP853) at a 10 times tighter tolerance (rtol 1e-10,
+  atol 1e-12), from its own trajectory. For the El Niño fit at ×1 this gives
+  λ1 = +0.668 ± 0.007 per forcing cycle against +0.655 ± 0.009 with RK45
+  (1.1 combined standard errors apart). Periodic runs agree to the 4th
+  decimal; every run keeps its class. The page shows both values.
+- **Kaplan-Yorke dimension** of the Poincaré section (a 2-D map with
+  exponents λ1 ≥ λ2 per cycle): D = 1 + λ1 / |λ2| when λ1 > 0, and 0 when
+  λ1 < 0 (the section is a finite set of points). Its standard error follows
+  from λ1's, since λ1 + λ2 = B × period is fixed. The El Niño fit at ×1:
+  D = 1.13; the chaotic benchmark at ×1: D = 1.81. A dimension close to 1
+  is why the strongly damped El Niño fit's section looks like a curve.
 - **Classification** by the largest exponent λ1, per forcing cycle:
   chaotic if λ1 > max(3 SE, 0.01), periodic if λ1 < −max(3 SE, 0.01),
   quasi-periodic otherwise. A separate check on the section run (points
   recurring after n cycles, n up to 24) gives the period of periodic runs;
   it agrees with the classification for every run.
+- **Sweep** (not on the site yet): `scripts/lyapunov_sweep.py` repeats the
+  estimate for the El Niño fit at 101 forcing amplitudes, ×0.5 to ×1.5 in
+  steps of 0.01, and writes `data/model/lyapunov-sweep-alado.csv` and `.png`.
+  The five published factors come back with identical values. Chaos fills
+  bands at ×0.59 to ×0.65, ×0.67 to ×0.79, ×0.81 to ×0.84, ×0.86 to ×0.94
+  and ×0.96 to ×1.04, separated by narrow periodic windows (single steps at
+  ×0.66, ×0.80, ×0.85 and ×0.95); from ×1.05 up every run is periodic. The
+  preset (×1) lies in the last band, 5% from a periodic window on either
+  side, so the fit's chaos is real but not robust to a small change in FA. Where λ1 crosses zero at an
+  isolated amplitude (×1.12, labelled quasi-periodic by the rule above) the
+  run sits at a bifurcation of a periodic orbit, not on a torus.
 - Runs are cached in `data/model/` (`python -m enso.model`). A chaotic
   trajectory depends on every last bit of floating-point arithmetic, so the
   cache, not a rerun on another machine, defines the published pages.

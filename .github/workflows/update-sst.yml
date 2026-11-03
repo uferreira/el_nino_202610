@@ -12,7 +12,8 @@ on:
 permissions:
   contents: write
 
-# Never two data updates at once (they would race on the push).
+# Never two SST updates at once. The sea-level writer (a PC) is outside this
+# group; enso.publish handles a race with it (rebuild and retry once).
 concurrency:
   group: data-update
   cancel-in-progress: false
@@ -31,41 +32,21 @@ jobs:
       - name: Install
         run: pip install -e ".[test]"
 
-      # A failed download keeps the committed record; the step's status is
-      # kept so the run can still publish the rest, then turn red at the end.
-      - name: Fetch SST (NOAA CPC)
-        id: fetch
+      # Fetch SST, rebuild, run the analysis and build tests, commit
+      # data/series/nino*.csv and docs/ if anything changed, pull --rebase and
+      # push (on a conflict with the sea-level writer: rebuild and retry once).
+      # Exit 1: published, but a download failed; 2: nothing published.
+      - name: Update and publish SST
         env:
           PYTHONUNBUFFERED: '1'
         run: |
-          set +e
-          python -m enso.fetch --source-type noaa_sst
-          echo "status=$?" >> "$GITHUB_OUTPUT"
-
-      - name: Rebuild the site
-        run: python -m enso.build
-
-      # The analysis and build tests check the new data before it is published
-      # (browser tests run in CI on every push).
-      - name: Test the new data
-        run: python -m pytest -q -m "not browser"
-
-      - name: Commit and push if anything changed
-        run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/series docs
-          if git diff --cached --quiet; then
-            echo "No new SST data: nothing to commit."
-            exit 0
-          fi
-          LAST=$(tail -n 1 data/series/nino12.csv | cut -d, -f1)
-          git commit -m "data: SST through ${LAST} [auto]"
-          git pull --rebase
-          git push
+          python -m enso.publish --source-type noaa_sst
 
-      - name: Fail if a download failed
-        if: steps.fetch.outputs.status != '0'
-        run: |
-          echo "::error::SST download failed; the committed record was kept."
-          exit 1
+      # Sea level is updated by a scheduled task on a PC (README, "Updates").
+      # Its runs record their dates in data/status/uhslc.json; turn this run
+      # red when any station has not been downloaded for over 15 days.
+      - name: Check that sea level is being updated
+        if: always()
+        run: python -m enso.status --check uhslc --max-age-days 15

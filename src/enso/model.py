@@ -43,7 +43,7 @@ from enso.config import ROOT, Config, load_config
 MODEL_DIR = ROOT / "data" / "model"
 RTOL, ATOL = 1e-6, 1e-8     # as el_nino.duffing.solve_duffing
 REPEAT_MAX = 24             # longest cycle (in forcing periods) we look for
-LYAP_METHOD = 2             # bump when the Lyapunov code changes, to recompute the cache
+LYAP_METHOD = 3             # bump when the Lyapunov code changes, to recompute the cache
 
 
 def duffing_rhs(t: float, state, params: dict) -> list[float]:
@@ -217,6 +217,10 @@ def _lyap_settings(cfg: Config) -> dict:
     return dict(cfg.models["duffing"]["lyapunov"])
 
 
+def _integrator(ls: dict) -> dict:
+    return {"method": ls.get("method", "RK45"), "rtol": float(ls["rtol"]), "atol": float(ls["atol"])}
+
+
 def lyap_path(preset: str, factor: float, directory: Path = MODEL_DIR) -> Path:
     return Path(directory) / f"duffing-{preset}-x{factor:g}-lyapunov.json"
 
@@ -228,7 +232,11 @@ def _lyap_key(cfg: Config, preset: str, factor: float) -> dict:
             "lyapunov": _lyap_settings(cfg), "method": LYAP_METHOD}
 
 
-def lyapunov(cfg: Config, preset: str, factor: float, cycles: int | None = None) -> dict:
+CHECK_FIELDS = ("integrator", "lambda1", "lambda2", "se", "converged", "regime", "sum_check")
+
+
+def lyapunov(cfg: Config, preset: str, factor: float, cycles: int | None = None,
+             integrator: dict | None = None) -> dict:
     """Both Lyapunov exponents of one run, per forcing cycle.
 
     Benettin et al. (1980): integrate the trajectory with two tangent
@@ -237,6 +245,10 @@ def lyapunov(cfg: Config, preset: str, factor: float, cycles: int | None = None)
     from the preset's initial state after the transient. Since the
     divergence of the flow is B everywhere, lambda1 + lambda2 = B x period
     exactly; ``sum_check`` is the numerical error of that identity.
+
+    ``factor`` may be any multiple of the preset's FA (the sweep script uses
+    100 of them). ``integrator`` ({method, rtol, atol}) defaults to the
+    config's; the robustness check passes ``lyapunov.check``.
     """
     ls = _lyap_settings(cfg)
     n = int(cycles or ls["cycles"])
@@ -244,7 +256,7 @@ def lyapunov(cfg: Config, preset: str, factor: float, cycles: int | None = None)
     params = run_params(cfg, preset, factor)
     T = 2 * math.pi / params["W"]
     t0 = settings(cfg, preset)["transient_cycles"] * T
-    tol = {"rtol": ls["rtol"], "atol": ls["atol"], "method": "RK45"}
+    tol = integrator or _integrator(ls)
 
     sol = solve_ivp(duffing_rhs, (0.0, t0), [float(p["x0"]), float(p["y0"])], args=(params,), **tol)
     state = sol.y[:, -1]
@@ -280,12 +292,31 @@ def lyapunov(cfg: Config, preset: str, factor: float, cycles: int | None = None)
     converged = bool(abs(a - b) <= max(3 * 2 * se, zero_band))
     return {
         "lambda1": float(lam[0]), "lambda2": float(lam[1]), "se": se,
-        "per": "forcing cycle", "period": T, "cycles": n, "window": [h + 1, n],
+        "per": "forcing cycle", "period": T, "integrator": dict(tol), "cycles": n, "window": [h + 1, n],
         "running": running, "converged": converged,
         "first_half_lambda1": float(logs[:h, 0].mean()),
         "sum_check": float(lam.sum() - params["B"] * T),
         "regime": classify(float(lam[0]), se, zero_band),
     }
+
+
+def kaplan_yorke(lambda1: float, lambda2: float, se: float = 0.0) -> tuple[float, float]:
+    """Kaplan-Yorke (Lyapunov) dimension of the Poincaré section, with its
+    standard error from ``se`` of lambda1.
+
+    The section is a 2-D map with exponents lambda1 >= lambda2 (per forcing
+    cycle): D = 1 + lambda1 / |lambda2| when lambda1 >= 0 > lambda1 + lambda2,
+    and 0 when lambda1 < 0 (the section is a finite set of points). Here
+    lambda1 + lambda2 = B x period is fixed, so dD/dlambda1 = |s| / (lambda1 - s)^2
+    with s = lambda1 + lambda2.
+    """
+    if lambda1 < 0:
+        return 0.0, 0.0
+    s = lambda1 + lambda2
+    if s >= 0:
+        return 2.0, 0.0
+    d = 1.0 + lambda1 / abs(lambda2)
+    return d, abs(s) / (lambda1 - s) ** 2 * se
 
 
 def classify(lam: float, se: float, zero_band: float) -> str:
@@ -308,6 +339,10 @@ def load_lyapunov(cfg: Config, preset: str, factor: float, directory: Path = MOD
     if not compute_missing:
         raise FileNotFoundError(f"{path} is missing or stale: run python -m enso.model")
     data = {"key": key, **lyapunov(cfg, preset, factor)}
+    check = _lyap_settings(cfg).get("check")
+    if check:
+        c = lyapunov(cfg, preset, factor, integrator=_integrator(check))
+        data["check"] = {k: c[k] for k in CHECK_FIELDS}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8", newline="\n")
     return data
@@ -339,7 +374,9 @@ def main(argv: list[str] | None = None) -> int:
         conv = ", ".join(f"{c['lambda1']:+.4f}" for c in L["running"])
         print(f"lyap    {preset} x{factor:g}: lambda1 = {L['lambda1']:+.4f} +/- {L['se']:.4f} per cycle "
               f"({L['regime']}{'' if L['converged'] else ', NOT CONVERGED'}); running {conv}; "
-              f"first half {L['first_half_lambda1']:+.4f}; lambda1+lambda2-B*T = {L['sum_check']:+.1e}",
+              f"first half {L['first_half_lambda1']:+.4f}; lambda1+lambda2-B*T = {L['sum_check']:+.1e}"
+              + (f"; {L['check']['integrator']['method']} {L['check']['lambda1']:+.4f}"
+                 f" +/- {L['check']['se']:.4f}" if "check" in L else ""),
               flush=True)
     return 0
 

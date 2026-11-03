@@ -15,16 +15,27 @@
    "cycles": 1500,
    "blocks": 20,
    "zero_band": 0.01,
+   "method": "RK45",
    "rtol": 1e-09,
-   "atol": 1e-11
+   "atol": 1e-11,
+   "check": {
+    "method": "DOP853",
+    "rtol": 1e-10,
+    "atol": 1e-12
+   }
   },
-  "method": 2
+  "method": 3
  },
  "lambda1": 0.532445902284315,
  "lambda2": -0.6581096100421587,
  "se": 0.040776874852012285,
  "per": "forcing cycle",
  "period": 6.283185307179586,
+ "integrator": {
+  "method": "RK45",
+  "rtol": 1e-09,
+  "atol": 1e-11
+ },
  "cycles": 1500,
  "window": [
   751,
@@ -51,5 +62,18 @@
  "converged": true,
  "first_half_lambda1": 0.6020146656743742,
  "sum_check": -1.6142520098405555e-09,
- "regime": "chaotic"
+ "regime": "chaotic",
+ "check": {
+  "integrator": {
+   "method": "DOP853",
+   "rtol": 1e-10,
+   "atol": 1e-12
+  },
+  "lambda1": 0.5238395160357703,
+  "lambda2": -0.6495032222076185,
+  "se": 0.038948493485394566,
+  "converged": true,
+  "regime": "chaotic",
+  "sum_check": -2.8256452733188553e-11
+ }
 }

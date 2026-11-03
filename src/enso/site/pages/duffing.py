@@ -63,6 +63,19 @@ def _lyapunov_facts(cfg: Config, preset: str, L: dict) -> dict:
     if cfg.models["duffing"]["presets"][preset].get("time_unit") == "month":
         per_month = f" ({fmt(lam / L['period'], 4, signed=True)} per month)"
     a, b = L["window"]
+    D, dse = model.kaplan_yorke(lam, L["lambda2"], se)
+    if lam < 0:
+        dim, dim_note = "0", "a finite set of points"
+    else:
+        dim, dim_note = f"{D:.3f} \u00b1 {dse:.3f}", "1 + \u03bb\u2081 / |\u03bb\u2082| of the section"
+    c = L.get("check")
+    check = ""
+    if c:
+        it = c["integrator"]
+        check = (f" Robustness: {it['method']} at rtol {it['rtol']:.0e} gives "
+                 f"{fmt(c['lambda1'], 3, signed=True)} \u00b1 {c['se']:.3f} "
+                 f"({L['integrator']['method']} at rtol {L['integrator']['rtol']:.0e}: "
+                 f"{fmt(lam, 3, signed=True)}).")
     running = ", ".join(f"{fmt(c['lambda1'], 3, signed=True)}" for c in L["running"])
     at = ", ".join(str(c["cycles"]) for c in L["running"])
     return {
@@ -72,7 +85,10 @@ def _lyapunov_facts(cfg: Config, preset: str, L: dict) -> dict:
                         f"discarded. Running estimate {running} at cycles {at}"
                         f"{'' if L['converged'] else ' (not settled)'}. "
                         f"Check: \u03bb\u2081 + \u03bb\u2082 equals B times the period to "
-                        f"{abs(L['sum_check']):.0e}."),
+                        f"{abs(L['sum_check']):.0e}.{check}"),
+        "dimension": dim,
+        "dimension_note": dim_note,
+        "lambda_check": fmt(c["lambda1"], 3, signed=True) if c else "",
     }
 
 
@@ -84,7 +100,7 @@ def facts(cfg: Config, preset: str, factor: float, run: model.ModelRun) -> dict:
     return {
         "label": p["label"],
         "note": p["note"],
-        "equation": f"X\u2033 = K1\u00b7X + K3\u00b7X\u00b3 + FA\u00b7cos(W\u00b7t {MINUS} FF) + B\u00b7X\u2032",
+        "equation": f"X\u2033 = K1\u00b7X + K3\u00b7X\u00b3 + FA\u00b7cos(W\u00b7t\u00a0{MINUS}\u00a0FF) + B\u00b7X\u2032",
         "K1": fmt(q["K1"], 4), "K3": fmt(q["K3"], 4),
         "FA": fmt(q["FA"], 4) + (f" (\u00d7{factor:g})" if factor != 1 else ""),
         "FF": fmt(q["FF"], 0) + deg, "B": fmt(q["B"], 4), "W": fmt(q["W"], 4),

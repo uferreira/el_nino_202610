@@ -228,6 +228,9 @@ def test_duffing_reports_the_lyapunov_class_and_its_convergence(site):
     assert data["facts"]["regime"]["class"] == "chaotic"
     assert data["facts"]["lambda"].startswith("+")
     assert "Running estimate" in data["facts"]["convergence"]
+    assert "DOP853" in data["facts"]["convergence"]
+    assert 1.5 < float(data["facts"]["dimension"].split()[0]) < 2.0
+    assert _load(site, "data/duffing/trajectory/alado/1.5.json")["facts"]["dimension"] == "0"
     sec = _load(site, "data/duffing/section/chaos/1/0.json")
     assert sec["regime"]["class"] == "chaotic"
 

@@ -89,6 +89,25 @@ def fetch_one(ds: Dataset, cfg: Config, directory: Path = SERIES_DIR) -> str:
     return f"OK     {ds.key}: {len(record)} months through {record.last_period}"
 
 
+def keys_for(cfg: Config, source_type: str | None) -> list[str]:
+    return [d.key for d in cfg.datasets if source_type in (None, d.source["type"])]
+
+
+def fetch_many(keys: list[str], cfg: Config) -> list[tuple[str, str]]:
+    """Fetch each dataset; one failure never stops the others. Returns
+    (key, status line) pairs; the line starts with OK, SAME, HELD or FAILED."""
+    results = []
+    for key in keys:
+        ds = cfg.dataset(key)
+        try:
+            line = fetch_one(ds, cfg)
+        except Exception as exc:  # one bad source must not stop the others
+            line = f"FAILED {key}: {exc}"
+        print(line, flush=True)
+        results.append((key, line))
+    return results
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("keys", nargs="*", help="dataset keys (default: all)")
@@ -96,17 +115,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="only the datasets with this source type")
     args = parser.parse_args(argv)
     cfg = load_config()
-    wanted = args.keys or [d.key for d in cfg.datasets
-                           if args.source_type in (None, d.source["type"])]
-    failed = 0
-    for key in wanted:
-        ds = cfg.dataset(key)
-        try:
-            print(fetch_one(ds, cfg), flush=True)
-        except Exception as exc:  # one bad source must not stop the others
-            failed += 1
-            print(f"FAILED {key}: {exc}", flush=True)
-    return 1 if failed else 0
+    results = fetch_many(args.keys or keys_for(cfg, args.source_type), cfg)
+    return 1 if any(line.startswith("FAILED") for _, line in results) else 0
 
 
 if __name__ == "__main__":

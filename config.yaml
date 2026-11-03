@@ -187,5 +187,13 @@ models:
                               # the exponent is the mean over the second half
       blocks: 20              # for the standard error of the estimate
       zero_band: 0.01         # |lambda| per forcing cycle below this (and 3 SE) reads as 0
+      method: RK45
       rtol: 1.0e-9
       atol: 1.0e-11
+      # Robustness check: the same estimate again with another integrator and a
+      # 10 times tighter tolerance (its own trajectory, so chaotic runs differ in
+      # detail but must agree on the exponent).
+      check:
+        method: DOP853
+        rtol: 1.0e-10
+        atol: 1.0e-12
