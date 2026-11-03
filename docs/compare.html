@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compare datasets · El Niño phase space</title>
+<meta name="description" content="Up to three records on one dimensionless phase plane, each scaled by its own standard deviation so their shapes and timing can be compared.">
+<script>
+  /* Apply a saved theme before first paint, so the page never flashes. */
+  try { var t = localStorage.getItem('enso.theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap site-header__inner">
+    <a class="site-name" href="index.html">El Niño phase space</a>
+    <nav class="site-nav" aria-label="Pages">
+      <a href="index.html">Phase diagrams</a>
+      <a href="compare.html" aria-current="page">Compare</a>
+      <a href="duffing.html">Duffing</a>
+    </nav>
+    <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark theme">
+      <svg class="icon-moon" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M15.5 12.6A6.5 6.5 0 0 1 7.4 4.5a6.5 6.5 0 1 0 8.1 8.1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <svg class="icon-sun" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M4 16l1.4-1.4M14.6 5.4 16 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap" data-default-event="2025-26">
+  <header class="page-head">
+    <h1>Compare datasets</h1>
+    <p class="lede">Up to three records on one dimensionless phase plane, each scaled by its own standard deviation so their shapes and timing can be compared.</p>
+  </header>
+<div class="controls page-controls">
+<div class="field">
+  <label class="field__label" for="ctl-a">Record A</label>
+  <div class="field__row">
+    <select id="ctl-a" name="a" data-control>
+<optgroup label="Sea surface temperature">        <option value="nino12" selected>NINO1+2</option>
+        <option value="nino3">NINO3 anomaly</option>
+        <option value="nino34">NINO3.4 anomaly</option>
+        <option value="nino4">NINO4 anomaly</option>
+</optgroup><optgroup label="Sea level">        <option value="callao">Callao</option>
+        <option value="la_libertad">La Libertad</option>
+        <option value="honolulu">Honolulu</option>
+        <option value="palau">Palau</option>
+</optgroup><optgroup label="Model">        <option value="model">Duffing model, El Niño fit (ALADO)</option>
+</optgroup>    </select>
+  </div>
+</div>
+<div class="field">
+  <label class="field__label" for="ctl-b">Record B</label>
+  <div class="field__row">
+    <select id="ctl-b" name="b" data-control>
+<optgroup label="Sea surface temperature">        <option value="nino12">NINO1+2</option>
+        <option value="nino3">NINO3 anomaly</option>
+        <option value="nino34">NINO3.4 anomaly</option>
+        <option value="nino4">NINO4 anomaly</option>
+</optgroup><optgroup label="Sea level">        <option value="callao" selected>Callao</option>
+        <option value="la_libertad">La Libertad</option>
+        <option value="honolulu">Honolulu</option>
+        <option value="palau">Palau</option>
+</optgroup><optgroup label="Model">        <option value="model">Duffing model, El Niño fit (ALADO)</option>
+</optgroup>    </select>
+  </div>
+</div>
+<div class="field">
+  <label class="field__label" for="ctl-c">Record C</label>
+  <div class="field__row">
+    <select id="ctl-c" name="c" data-control>
+        <option value="none" selected>None</option>
+<optgroup label="Sea surface temperature">        <option value="nino12">NINO1+2</option>
+        <option value="nino3">NINO3 anomaly</option>
+        <option value="nino34">NINO3.4 anomaly</option>
+        <option value="nino4">NINO4 anomaly</option>
+</optgroup><optgroup label="Sea level">        <option value="callao">Callao</option>
+        <option value="la_libertad">La Libertad</option>
+        <option value="honolulu">Honolulu</option>
+        <option value="palau">Palau</option>
+</optgroup><optgroup label="Model">        <option value="model">Duffing model, El Niño fit (ALADO)</option>
+</optgroup>    </select>
+  </div>
+</div>
+</div>
+
+
+<section class="panel" id="compare" data-kind="compare-linked" data-src="data/compare/{a}.json" aria-busy="true">
+  <div class="controls">
+    <div class="field" role="group" aria-labelledby="compare-events-label">
+      <span class="field__label" id="compare-events-label">Highlight an El Niño</span>
+      <div class="segmented">
+        <button type="button" data-event="1982-83" aria-pressed="false">1982-83</button>
+        <button type="button" data-event="1997-98" aria-pressed="false">1997-98</button>
+        <button type="button" data-event="2015-16" aria-pressed="false">2015-16</button>
+        <button type="button" data-event="2023-24" aria-pressed="false">2023-24</button>
+        <button type="button" data-event="2025-26" aria-pressed="false">2025-26</button>
+      </div>
+    </div>
+  </div>
+  <div class="linked">
+    <div class="linked__loop">
+      <div class="plot plot--square" data-plot="phase" role="img" aria-label="Normalised phase loops of the chosen records"></div>
+    </div>
+    <div class="linked__side">
+      <ul class="key key--slots" aria-label="Records">
+  <li data-slot-key="A" hidden><span class="swatch swatch--slot"></span><span><b>A</b> <span data-slot-label></span></span></li>
+  <li data-slot-key="B" hidden><span class="swatch swatch--slot"></span><span><b>B</b> <span data-slot-label></span></span></li>
+  <li data-slot-key="C" hidden><span class="swatch swatch--slot"></span><span><b>C</b> <span data-slot-label></span></span></li>
+</ul>
+
+      <ul class="key" aria-label="Legend">
+        <li><span class="swatch swatch--faint"></span>Whole record</li>
+        <li><span class="swatch swatch--bold"></span>Latest 12 months</li>
+        <li><span class="swatch swatch--dashed"></span>Provisional</li>
+        <li class="key__highlight" hidden><span class="swatch swatch--bold"></span><span data-field="highlight.range"></span>
+          <button type="button" class="link-button" data-action="clear">Clear</button></li>
+      </ul>
+      <div class="plot-box">
+        <div class="plot plot--fill" data-plot="time" role="img" aria-label="Normalised value of each record over time"></div>
+      </div>
+      <p class="hint">Hover a month to find it on every loop. Drag across the time series to highlight a period on all records.</p>
+    </div>
+  </div>
+  <p class="panel__error" data-error hidden>Could not load these records.</p>
+</section>
+
+<section class="panel" id="compare-section" data-kind="compare-section" aria-busy="true">
+  <h2 class="panel__title">Annual section</h2>
+  <p class="panel__caption">One point per year in the chosen month, for each record.</p>
+  <div class="controls">
+<div class="field">
+  <label class="field__label" for="ctl-month">Month</label>
+  <div class="field__row">
+    <select id="ctl-month" name="month" data-control>
+        <option value="0" selected>January</option>
+        <option value="1">February</option>
+        <option value="2">March</option>
+        <option value="3">April</option>
+        <option value="4">May</option>
+        <option value="5">June</option>
+        <option value="6">July</option>
+        <option value="7">August</option>
+        <option value="8">September</option>
+        <option value="9">October</option>
+        <option value="10">November</option>
+        <option value="11">December</option>
+    </select>
+    <button type="button" class="icon-button" data-play="month" aria-pressed="false" aria-label="Play through month">
+      <svg class="icon-play" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
+      <svg class="icon-pause" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5h3v11H4zM9 2.5h3v11H9z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</div>
+  </div>
+  <div class="single">
+    <div class="plot plot--square" data-plot="section" role="img" aria-label="Annual section of the chosen records"></div>
+    <div>
+      <ul class="key key--slots" aria-label="Records">
+  <li data-slot-key="A" hidden><span class="swatch swatch--slot"></span><span><b>A</b> <span data-slot-label></span></span></li>
+  <li data-slot-key="B" hidden><span class="swatch swatch--slot"></span><span><b>B</b> <span data-slot-label></span></span></li>
+  <li data-slot-key="C" hidden><span class="swatch swatch--slot"></span><span><b>C</b> <span data-slot-label></span></span></li>
+</ul>
+
+      <p class="hint">Each dot is one year of a record, on the same normalised plane as the loops above.
+        Press play to step through the months and watch the clusters turn with the seasons.</p>
+    </div>
+  </div>
+  <p class="panel__error" data-error hidden>Could not load these records.</p>
+</section>
+
+<details class="notes">
+  <summary>How the records are scaled</summary>
+  
+<p>Each record is put on the same dimensionless plane:
+x<sub>n</sub> = (x − mean) / σ<sub>x</sub> and
+y<sub>n</sub> = (dx/dt) / σ<sub>x</sub>, with the mean and standard deviation
+σ<sub>x</sub> of that record's filtered values over its analysis window. Both axes
+use the same σ<sub>x</sub>, so each loop keeps its shape: a taller loop
+is a record that moves faster relative to its own typical swing.</p>
+<p>The model has no real calendar: its months are laid on the same calendar
+as NINO1+2 so the time strip can show it, but its events are not the
+observed ones. Compare its shape and its annual sections, not its timing.</p>
+<p>The annual section keeps one point per year, in the chosen calendar month.
+Records that share a seasonal rhythm cluster in the same part of the plane
+for the same month.</p>
+
+</details>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p>Data: <a href="https://www.cpc.ncep.noaa.gov/data/indices/">NOAA CPC</a> SST indices (monthly), <a href="https://uhslc.soest.hawaii.edu/">UHSLC</a> tide gauges (hourly, averaged to months). Downloaded 2026-11-03.</p>
+    <p>Fourier low-pass, HN1 = 10, HN2 = 9 (full periods under about 18 to 20 months removed). All numbers are computed in Python; this page only draws them. <a href="https://github.com/uferreira/el_nino_202610">Source</a>.</p>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-basic-dist-min@4.1.1/plotly-basic.min.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

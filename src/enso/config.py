@@ -49,8 +49,15 @@ class Dataset:
 @dataclass(frozen=True)
 class Event:
     label: str
-    start: str  # "YYYY-MM", inclusive
-    end: str
+    start: str          # "YYYY-MM", inclusive
+    end: str | None     # None: still running, up to the latest month
+
+
+@dataclass(frozen=True)
+class CurrentEvent:
+    label: str
+    dataset: str
+    threshold: float
 
 
 @dataclass(frozen=True)
@@ -61,6 +68,7 @@ class FilterParams:
     window_start: str | None
     window_end: str | None
     base_year: int
+    provisional_months: int
 
 
 @dataclass(frozen=True)
@@ -69,6 +77,8 @@ class Config:
     groups: dict[str, Group]
     datasets: list[Dataset]
     events: list[Event]
+    current_event: CurrentEvent | None = None
+    models: dict = field(default_factory=dict)
     site: dict = field(default_factory=dict)
 
     def dataset(self, key: str) -> Dataset:
@@ -89,6 +99,7 @@ def load_config(path: Path | str = CONFIG_PATH) -> Config:
         window_start=w.get("start"),
         window_end=w.get("end"),
         base_year=int(w.get("base_year", 1975)),
+        provisional_months=int(f.get("provisional_months", 0)),
     )
     groups = {k: Group(k, v["label"], v["unit"]) for k, v in raw["groups"].items()}
 
@@ -112,5 +123,11 @@ def load_config(path: Path | str = CONFIG_PATH) -> Config:
             source=dict(d["source"]),
         ))
 
-    events = [Event(e["label"], str(e["start"]), str(e["end"])) for e in raw.get("events", [])]
-    return Config(params, groups, datasets, events, raw.get("site", {}))
+    events = [Event(e["label"], str(e["start"]), None if e.get("end") is None else str(e["end"]))
+              for e in raw.get("events", [])]
+    ce = raw.get("current_event")
+    current = CurrentEvent(ce["label"], ce["dataset"], float(ce["threshold"])) if ce else None
+    if current and current.label not in {e.label for e in events}:
+        raise ValueError(f"current_event {current.label!r} is not listed under events")
+    return Config(params, groups, datasets, events, current,
+                  raw.get("models", {}), raw.get("site", {}))

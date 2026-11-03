@@ -21,6 +21,8 @@
     <a class="site-name" href="index.html">El Niño phase space</a>
     <nav class="site-nav" aria-label="Pages">
       <a href="index.html" aria-current="page">Phase diagrams</a>
+      <a href="compare.html">Compare</a>
+      <a href="duffing.html">Duffing</a>
     </nav>
     <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark theme">
       <svg class="icon-moon" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M15.5 12.6A6.5 6.5 0 0 1 7.4 4.5a6.5 6.5 0 1 0 8.1 8.1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
@@ -29,30 +31,28 @@
   </div>
 </header>
 
-<main class="wrap">
+<main class="wrap" data-default-event="2025-26">
   <header class="page-head">
     <h1>Phase diagrams</h1>
     <p class="lede">Each record drawn against its own rate of change. Right of centre is warm or high, above zero is rising; El Niño events run as wide clockwise loops.</p>
   </header>
 <section class="panel" id="phase" data-kind="phase-linked" data-src="data/phase/{ds}.json" aria-busy="true">
   <div class="controls">
-    <label class="field">
-      <span class="field__label">Dataset</span>
-      <select name="ds" data-control>
-        <optgroup label="Sea surface temperature">
-          <option value="nino12" selected>NINO1+2</option>
-          <option value="nino3">NINO3 anomaly</option>
-          <option value="nino34">NINO3.4 anomaly</option>
-          <option value="nino4">NINO4 anomaly</option>
-        </optgroup>
-        <optgroup label="Sea level">
-          <option value="callao">Callao</option>
-          <option value="la_libertad">La Libertad</option>
-          <option value="honolulu">Honolulu</option>
-          <option value="palau">Palau</option>
-        </optgroup>
-      </select>
-    </label>
+<div class="field">
+  <label class="field__label" for="ctl-ds">Dataset</label>
+  <div class="field__row">
+    <select id="ctl-ds" name="ds" data-control>
+<optgroup label="Sea surface temperature">        <option value="nino12" selected>NINO1+2</option>
+        <option value="nino3">NINO3 anomaly</option>
+        <option value="nino34">NINO3.4 anomaly</option>
+        <option value="nino4">NINO4 anomaly</option>
+</optgroup><optgroup label="Sea level">        <option value="callao">Callao</option>
+        <option value="la_libertad">La Libertad</option>
+        <option value="honolulu">Honolulu</option>
+        <option value="palau">Palau</option>
+</optgroup>    </select>
+  </div>
+</div>
     <div class="field" role="group" aria-labelledby="phase-events-label">
       <span class="field__label" id="phase-events-label">Highlight an El Niño</span>
       <div class="segmented">
@@ -60,6 +60,7 @@
         <button type="button" data-event="1997-98" aria-pressed="false">1997-98</button>
         <button type="button" data-event="2015-16" aria-pressed="false">2015-16</button>
         <button type="button" data-event="2023-24" aria-pressed="false">2023-24</button>
+        <button type="button" data-event="2025-26" aria-pressed="false">2025-26</button>
       </div>
     </div>
   </div>
@@ -73,27 +74,29 @@
       <div class="now" aria-live="polite">
         <div class="now__head">
           <span class="now__month" data-field="now.month"></span>
-          <span class="now__state" data-field="now.state"></span>
+          <span class="now__state"><span data-field="now.state"></span> <span class="tag">provisional</span></span>
         </div>
         <dl class="now__values">
-          <div><dt data-field="now.value_label"></dt><dd data-field="now.value"></dd></div>
-          <div><dt>Rate</dt><dd data-field="now.rate"></dd></div>
+          <div><dt data-field="now.observed_label"></dt><dd data-field="now.observed"></dd></div>
+          <div data-optional="now.anomaly"><dt>Anomaly</dt><dd data-field="now.anomaly"></dd></div>
+          <div><dt>Rate, provisional</dt><dd data-field="now.rate"></dd></div>
         </dl>
-        <p class="now__note">Filtered values. Observed monthly mean <span data-field="now.observed"></span>.
+        <p class="now__note"><span data-field="now.note"></span>
           Data through <span data-field="now.through"></span>, updated <span data-field="now.updated"></span>.</p>
       </div>
 
       <ul class="key" aria-label="Legend">
-        <li><span class="swatch swatch--history"></span>Whole record <span class="key__detail" data-field="window"></span></li>
+        <li><span class="swatch swatch--history"></span>Whole record<span class="key__detail" data-field="window"></span></li>
         <li><span class="swatch swatch--recent"></span>Latest 12 months</li>
+        <li><span class="swatch swatch--provisional"></span><span>Provisional, last <span data-field="provisional_months"></span> months</span></li>
         <li class="key__highlight" hidden><span class="swatch swatch--highlight"></span><span data-field="highlight.range"></span>
           <button type="button" class="link-button" data-action="clear">Clear</button></li>
       </ul>
 
       <div class="plot-box">
-        <div class="plot plot--fill" data-plot="time" role="img" aria-label="Time series of the value and its rate of change"></div>
+        <div class="plot plot--fill" data-plot="time" role="img" aria-label="Time series of the value, its anomaly and its rate of change"></div>
       </div>
-      <p class="hint">Drag across the time series to highlight a period; double-click or Clear removes it.</p>
+      <p class="hint">Bold: the filtered anomaly (seasonal cycle removed). Drag across the time series to highlight a period; double-click or Clear removes it.</p>
     </div>
   </div>
 
@@ -110,11 +113,16 @@ moving right while it builds, across the zero line at its peak, then below
 the zero line moving left as it decays.</p>
 <p>The record is low-pass filtered (Fourier, full periods shorter than about
 18 to 20 months removed) so the loop shows interannual ENSO variability, not
-month-to-month noise. NINO1+2 keeps its seasonal cycle, so it also traces a
-small loop every year. The last months of any filtered record can still move
-a little as new observations arrive.</p>
-<p>Drag across the time series to highlight that stretch of the loop;
-double-click to clear. Hover either view to find the same month in the other.</p>
+month-to-month noise. NINO1+2 and sea level keep their seasonal cycle, so
+they also trace a small loop every year; the bold line in the time panel is
+the same filtered record with the seasonal cycle taken out, so El Niño
+events stand out.</p>
+<p>The filter ends exactly on the latest observation, and the last months of
+the filtered record move as new months arrive. That stretch is dashed on the
+loop and shaded in the time panel (METHODS.md in the repository explains
+how long it is and why).</p>
+<p>Drag across the time series to highlight a period; double-click or Clear
+removes it. Hover either view to find the same month in the other.</p>
 
 </details>
 </main>

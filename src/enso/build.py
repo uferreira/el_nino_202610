@@ -60,12 +60,14 @@ def build(out: Path = DOCS_DIR, cfg: Config | None = None) -> dict:
     pages = all_pages(cfg)
     sizes: dict[str, int] = {}
 
-    # Data: one JSON per panel and control choice.
+    # Data: the JSON files each panel declares.
+    written: dict[str, int] = {}
     for page in pages:
         for panel in page.panels:
-            for choice in panel.choices():
-                rel = panel.path_for(choice)
-                sizes[rel] = _write_json(out / rel, panel.build(**choice))
+            for rel, make in panel.outputs(page.controls).items():
+                if rel in written:      # shared by two panels: build once
+                    continue
+                written[rel] = sizes[rel] = _write_json(out / rel, make())
 
     # Assets.
     assets = out / "assets"

@@ -3,6 +3,11 @@
 ENSO records (NOAA CPC sea surface temperature indices and UHSLC tide gauges)
 drawn as phase diagrams: each filtered record against its own rate of change.
 
+Pages: **Phase diagrams** (one record, loop linked to its time series),
+**Compare** (up to three records on one normalised plane) and **Duffing**
+(precomputed runs of a forced double-well model). How every number is made:
+[METHODS.md](METHODS.md).
+
 Successor to [el_nino](https://github.com/uferreira/el_nino), with a simpler
 design: **all calculations and figures are made in Python**; the pages only
 draw the JSON that Python writes, with a small `site.js`.
@@ -12,17 +17,21 @@ draw the JSON that Python writes, with a small `site.js`.
 ```
 config.yaml            filter, datasets, events: the only settings file
 data/series/*.csv      monthly records, committed (fetch writes, build reads)
+data/model/*.npz       Duffing runs, committed (python -m enso.model writes, build reads)
 src/enso/
   download.py          NOAA and UHSLC downloads (ported from el_nino)
   fourier.py           Fourier low-pass filter and derivative (ported)
   window.py            analysis window (ported)
   phasespace.py        record -> filtered (T, dT/dt)
+  model.py             python -m enso.model: Duffing runs -> data/model
   fetch.py             python -m enso.fetch: download -> data/series
   build.py             python -m enso.build: data/series -> docs/
   site/
     theme.py           the palette: tokens.css and Plotly templates, light and dark
     registry.py        Page, Panel, Control, Option
-    pages/phase.py     the Phase diagrams page (figures, readout, events)
+    pages/phase.py     Phase diagrams (figures, readout, events, provisional end)
+    pages/compare.py   Compare (normalised records, combined by slot in the browser)
+    pages/duffing.py   Duffing (trajectory and Poincaré section per run)
     templates/         Jinja2 HTML
     static/            site.css, site.js
 docs/                  the published site (generated; do not edit by hand)
@@ -37,7 +46,9 @@ python -m playwright install chromium     # for the browser tests and screenshot
 
 python -m enso.fetch                       # download all datasets (UHSLC takes minutes)
 python -m enso.fetch callao                # or some of them
+python -m enso.model                       # Duffing runs whose cache is missing or stale (about 1 min)
 python -m enso.build                       # rebuild docs/ (offline, deterministic)
+python scripts/hindcast.py                 # evidence for the provisional zone (METHODS.md)
 python -m pytest                           # tests
 python scripts/screenshots.py screenshots  # desktop/phone x light/dark PNGs
 ```

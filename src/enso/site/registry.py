@@ -9,15 +9,19 @@ A page is a list of panels. A panel names:
 * ``build``: a Python function that returns the JSON for one choice of
   control values
 
-The builder (enso.build) calls ``build`` for every combination of control
-values and writes the result to ``data``. Adding a dataset to a selector is
-adding an Option; adding a panel is adding a Panel to a page; adding a page
-is adding a module to enso.site.pages and listing it in PAGES there.
+The builder (enso.build) calls ``build`` for every combination of the
+control values the ``data`` template names, page-level controls included,
+and writes each result to its path. A panel that needs another layout of
+files (Compare: one file per dataset, combined in the browser) gives
+``files`` instead. Adding a dataset to a selector is adding an Option;
+adding a panel is adding a Panel to a page; adding a page is adding a module
+to enso.site.pages and listing it in PAGE_MODULES there.
 """
 
 from __future__ import annotations
 
 import itertools
+import string
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -35,6 +39,7 @@ class Control:
     label: str
     options: list[Option]
     default: str
+    play: bool = False      # a play button steps through the options
 
     def __post_init__(self):
         values = [o.value for o in self.options]
@@ -57,18 +62,33 @@ class Panel:
     kind: str
     title: str
     data: str
-    build: Callable[..., dict]
+    build: Callable[..., dict] | None = None
     controls: list[Control] = field(default_factory=list)
     caption: str = ""
+    files: Callable[[], dict[str, Callable[[], dict]]] | None = None
 
-    def choices(self):
-        """Every combination of control values, as dicts."""
-        names = [c.name for c in self.controls]
-        for combo in itertools.product(*[[o.value for o in c.options] for c in self.controls]):
+    def placeholders(self) -> list[str]:
+        return [name for _, name, _, _ in string.Formatter().parse(self.data) if name]
+
+    def choices(self, page_controls: list[Control] = ()):
+        """Every combination of the control values the data path uses."""
+        used = set(self.placeholders())
+        controls = [c for c in [*page_controls, *self.controls] if c.name in used]
+        missing = used - {c.name for c in controls}
+        if missing:
+            raise ValueError(f"panel {self.id!r}: no control for {sorted(missing)}")
+        names = [c.name for c in controls]
+        for combo in itertools.product(*[[o.value for o in c.options] for c in controls]):
             yield dict(zip(names, combo))
 
     def path_for(self, choice: dict) -> str:
         return self.data.format(**choice)
+
+    def outputs(self, page_controls: list[Control] = ()) -> dict[str, Callable[[], dict]]:
+        """Relative path -> function returning that file's JSON."""
+        if self.files is not None:
+            return self.files()
+        return {self.path_for(c): (lambda c=c: self.build(**c)) for c in self.choices(page_controls)}
 
 
 @dataclass
@@ -80,6 +100,8 @@ class Page:
     panels: list[Panel]
     template: str = "page.html"
     notes_html: str = ""   # longer explanation, shown collapsed
+    controls: list[Control] = field(default_factory=list)  # shared by all panels
+    attrs: dict = field(default_factory=dict)              # extra data-* on <main>
 
     @property
     def filename(self) -> str:

@@ -98,10 +98,20 @@
   },
   "roles": {
    "history": {
-    "line": "#b4bbc4"
+    "line": "rgba(74, 82, 93, 0.30)"
    },
    "series": {
-    "line": "#6b7481"
+    "line": "#a9b0b9"
+   },
+   "anomaly": {
+    "line": "#2b3139"
+   },
+   "points": {
+    "marker": "rgba(20, 23, 28, 0.55)"
+   },
+   "dot": {
+    "marker": "rgba(20, 23, 28, 0.55)",
+    "ring": "#ffffff"
    },
    "highlight": {
     "line": "#1d63c9"
@@ -121,7 +131,14 @@
    "hover": {}
   },
   "band": "rgba(29, 99, 201, 0.10)",
-  "zero": "#d3d7dc"
+  "provisional": "rgba(20, 23, 28, 0.05)",
+  "zero": "#d3d7dc",
+  "bg": "#ffffff",
+  "slots": {
+   "A": "#2a78d6",
+   "B": "#eb6834",
+   "C": "#1baf7a"
+  }
  },
  "dark": {
   "template": {
@@ -222,10 +239,20 @@
   },
   "roles": {
    "history": {
-    "line": "#4b525c"
+    "line": "rgba(170, 178, 188, 0.26)"
    },
    "series": {
-    "line": "#8a929d"
+    "line": "#5a616b"
+   },
+   "anomaly": {
+    "line": "#d4d8dd"
+   },
+   "points": {
+    "marker": "rgba(231, 233, 236, 0.55)"
+   },
+   "dot": {
+    "marker": "rgba(231, 233, 236, 0.55)",
+    "ring": "#121418"
    },
    "highlight": {
     "line": "#4a8fe8"
@@ -245,6 +272,13 @@
    "hover": {}
   },
   "band": "rgba(74, 143, 232, 0.16)",
-  "zero": "#353b44"
+  "provisional": "rgba(231, 233, 236, 0.06)",
+  "zero": "#353b44",
+  "bg": "#121418",
+  "slots": {
+   "A": "#3987e5",
+   "B": "#d95926",
+   "C": "#199e70"
+  }
  }
 }

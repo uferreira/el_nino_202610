@@ -1,0 +1,30 @@
+{% macro control(c) %}
+<div class="field">
+  <label class="field__label" for="ctl-{{ c.name }}">{{ c.label }}</label>
+  <div class="field__row">
+    <select id="ctl-{{ c.name }}" name="{{ c.name }}" data-control>
+      {% for group, options in c.groups() %}
+      {% if group %}<optgroup label="{{ group }}">{% endif %}
+        {% for o in options %}
+        <option value="{{ o.value }}"{% if o.value == c.default %} selected{% endif %}>{{ o.label }}</option>
+        {% endfor %}
+      {% if group %}</optgroup>{% endif %}
+      {% endfor %}
+    </select>
+    {% if c.play %}
+    <button type="button" class="icon-button" data-play="{{ c.name }}" aria-pressed="false" aria-label="Play through {{ c.label | lower }}">
+      <svg class="icon-play" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
+      <svg class="icon-pause" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5h3v11H4zM9 2.5h3v11H9z" fill="currentColor"/></svg>
+    </button>
+    {% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+{% macro page_controls(page) %}
+{% if page.controls %}
+<div class="controls page-controls">
+  {% for c in page.controls %}{{ control(c) }}{% endfor %}
+</div>
+{% endif %}
+{% endmacro %}

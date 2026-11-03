@@ -31,7 +31,7 @@
   </div>
 </header>
 
-<main class="wrap">
+<main class="wrap"{% for k, v in page.attrs.items() %} data-{{ k }}="{{ v }}"{% endfor %}>
   <header class="page-head">
     <h1>{{ page.title }}</h1>
     <p class="lede">{{ page.intro }}</p>

@@ -15,6 +15,10 @@ filter:
     start: null
     end: null
     base_year: 1975
+  # The last months of a filtered record change as new months arrive (the
+  # filter pins its end to the latest observation). Shown as provisional.
+  # Why 10: see METHODS.md, "Provisional end".
+  provisional_months: 10
 
 # Variable groups: one per kind of quantity. A group sets the unit and the
 # heading of its block in the dataset selector.
@@ -114,8 +118,63 @@ events:
   - {label: "1997-98", start: "1997-03", end: "1998-08"}
   - {label: "2015-16", start: "2015-03", end: "2016-06"}
   - {label: "2023-24", start: "2023-03", end: "2024-05"}
+  - {label: "2025-26", start: "2025-02", end: null}   # null end: still running, up to the latest month
+
+# The running event is highlighted when the page opens if the latest observed
+# anomaly of `dataset` (vs the window climatology for that calendar month) is
+# at least `threshold`, in that dataset's unit. Why 1.0 °C: see METHODS.md.
+current_event:
+  label: "2025-26"
+  dataset: nino12
+  threshold: 1.0
 
 site:
   title: El Niño phase space
   repo_url: https://github.com/uferreira/el_nino_202610
   base_url: https://uferreira.github.io/el_nino_202610/
+
+# Duffing model runs, precomputed in Python (python -m enso.model) and cached
+# in data/model/. Equation (ported from el_nino/src/el_nino/duffing.py):
+#   X'' = K1 X + K3 X^3 + FA cos(W t - FF) + B X'
+models:
+  duffing:
+    transient_cycles: 100     # forcing cycles discarded before anything is kept
+    section_cycles: 1500      # one long trajectory: one dot per forcing cycle
+    trajectory_cycles: 60     # the stretch drawn as a loop (and used on Compare)
+    samples_per_cycle: 12     # time-series samples per forcing cycle
+    ndots: 5                  # loop points per sample
+    phases: 12                # section phases offered (every 30 degrees)
+    fa_factors: [0.5, 0.75, 1.0, 1.25, 1.5]   # forcing amplitude steps, times the preset value
+    presets:
+      alado:
+        label: El Niño fit (ALADO)
+        note: >-
+          Coefficients of the original Java applet (DoubleWell.21.5), fitted to
+          the NINO1+2 attractor; time in months, one forcing cycle per year.
+        K1: 0.121847
+        K3: -0.03046
+        FA: 0.4873
+        FF: -60.0
+        B: -0.35465
+        W: 0.523599          # 2 pi / 12 rad per month, as in the applet
+        x0: 0.0
+        y0: 0.0
+        time_unit: month
+      chaos:
+        label: Chaotic benchmark
+        note: >-
+          The classic strange-attractor regime x″ + 0.02x′ − x + x³ = 3 sin t
+          (light damping, strong double well, hard forcing). Time is dimensionless.
+        # The motion is fast within each cycle: sample it finely, over fewer cycles.
+        samples_per_cycle: 36
+        trajectory_cycles: 30
+        K1: 1.0
+        K3: -1.0
+        FA: 3.0
+        FF: 90.0
+        B: -0.02
+        W: 1.0
+        x0: 1.0
+        y0: 0.0
+        time_unit: ""
+    compare_preset: alado     # the model offered on the Compare page (factor 1.0)

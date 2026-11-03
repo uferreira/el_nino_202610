@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "_macros.html" import control, page_controls %}
+{% macro slot_key() %}
+<ul class="key key--slots" aria-label="Records">
+  {% for s in ["A", "B", "C"] %}
+  <li data-slot-key="{{ s }}" hidden><span class="swatch swatch--slot"></span><span><b>{{ s }}</b> <span data-slot-label></span></span></li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+{% block content %}
+{{ page_controls(page) }}
+
+{% set loops = page.panels[0] %}
+<section class="panel" id="{{ loops.id }}" data-kind="{{ loops.kind }}" data-src="{{ loops.data }}" aria-busy="true">
+  <div class="controls">
+    <div class="field" role="group" aria-labelledby="{{ loops.id }}-events-label">
+      <span class="field__label" id="{{ loops.id }}-events-label">Highlight an El Niño</span>
+      <div class="segmented">
+        {% for ev in cfg.events %}
+        <button type="button" data-event="{{ ev.label }}" aria-pressed="false">{{ ev.label }}</button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="linked">
+    <div class="linked__loop">
+      <div class="plot plot--square" data-plot="phase" role="img" aria-label="Normalised phase loops of the chosen records"></div>
+    </div>
+    <div class="linked__side">
+      {{ slot_key() }}
+      <ul class="key" aria-label="Legend">
+        <li><span class="swatch swatch--faint"></span>Whole record</li>
+        <li><span class="swatch swatch--bold"></span>Latest 12 months</li>
+        <li><span class="swatch swatch--dashed"></span>Provisional</li>
+        <li class="key__highlight" hidden><span class="swatch swatch--bold"></span><span data-field="highlight.range"></span>
+          <button type="button" class="link-button" data-action="clear">Clear</button></li>
+      </ul>
+      <div class="plot-box">
+        <div class="plot plot--fill" data-plot="time" role="img" aria-label="Normalised value of each record over time"></div>
+      </div>
+      <p class="hint">Hover a month to find it on every loop. Drag across the time series to highlight a period on all records.</p>
+    </div>
+  </div>
+  <p class="panel__error" data-error hidden>Could not load these records.</p>
+</section>
+
+{% set sec = page.panels[1] %}
+<section class="panel" id="{{ sec.id }}" data-kind="{{ sec.kind }}" aria-busy="true">
+  <h2 class="panel__title">{{ sec.title }}</h2>
+  <p class="panel__caption">{{ sec.caption }}</p>
+  <div class="controls">
+    {% for c in sec.controls %}{{ control(c) }}{% endfor %}
+  </div>
+  <div class="single">
+    <div class="plot plot--square" data-plot="section" role="img" aria-label="Annual section of the chosen records"></div>
+    <div>
+      {{ slot_key() }}
+      <p class="hint">Each dot is one year of a record, on the same normalised plane as the loops above.
+        Press play to step through the months and watch the clusters turn with the seasons.</p>
+    </div>
+  </div>
+  <p class="panel__error" data-error hidden>Could not load these records.</p>
+</section>
+
+<details class="notes">
+  <summary>How the records are scaled</summary>
+  {{ page.notes_html | safe }}
+</details>
+{% endblock %}

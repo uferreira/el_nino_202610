@@ -9,6 +9,9 @@ from theme.json, so switching light/dark never needs a rebuild.
 
 Recent (red) and highlight (blue) were checked with the dataviz palette
 validator against each background: CVD separation >= 22, contrast >= 3:1.
+The three Compare slot colours pass the validator as a set in both themes
+(all pairs); slot C in light mode is below 3:1 contrast, so every slot is
+also named by a text label on the plot.
 """
 
 from __future__ import annotations
@@ -27,12 +30,21 @@ TOKENS = {
         "text-2": "#4a525d",
         "muted": "#6b7481",
         "accent": "#1d63c9",
-        "history": "#b4bbc4",     # whole record: context, deliberately faint
+        # Whole record on the loop: thin and translucent, drawn one year per
+        # path, so where years overlap the grey builds up and density shows.
+        "history": "rgba(74, 82, 93, 0.30)",
+        "series": "#a9b0b9",      # time panel: full series, thin
+        "anomaly": "#2b3139",     # time panel: filtered interannual anomaly, bold
+        "points": "rgba(20, 23, 28, 0.55)",  # Poincaré section dots
         "recent": "#d1332b",      # latest 12 months
         "highlight": "#1d63c9",   # event or dragged range
         "band": "rgba(29, 99, 201, 0.10)",
+        "provisional": "rgba(20, 23, 28, 0.05)",
         "zero": "#d3d7dc",
         "cursor": "#14171c",
+        "slot-a": "#2a78d6",      # Compare slots: validated as a set
+        "slot-b": "#eb6834",
+        "slot-c": "#1baf7a",
     },
     "dark": {
         "bg": "#121418",
@@ -42,12 +54,19 @@ TOKENS = {
         "text-2": "#aab2bc",
         "muted": "#8a929d",
         "accent": "#4a8fe8",
-        "history": "#4b525c",
+        "history": "rgba(170, 178, 188, 0.26)",
+        "series": "#5a616b",
+        "anomaly": "#d4d8dd",
+        "points": "rgba(231, 233, 236, 0.55)",
         "recent": "#e8524a",
         "highlight": "#4a8fe8",
         "band": "rgba(74, 143, 232, 0.16)",
+        "provisional": "rgba(231, 233, 236, 0.06)",
         "zero": "#353b44",
         "cursor": "#e7e9ec",
+        "slot-a": "#3987e5",
+        "slot-b": "#d95926",
+        "slot-c": "#199e70",
     },
 }
 
@@ -55,13 +74,17 @@ TOKENS = {
 # current-month marker so it stands off the lines beneath it.
 ROLES = {
     "history": {"line": "history"},
-    "series": {"line": "muted"},  # the time series lines (no overplotting there)
+    "series": {"line": "series"},
+    "anomaly": {"line": "anomaly"},
+    "points": {"marker": "points"},
+    "dot": {"marker": "points", "ring": "bg"},   # Compare section dots (slot colour)
     "highlight": {"line": "highlight"},
     "recent": {"line": "recent", "marker": "recent"},
     "now": {"marker": "recent", "ring": "bg"},
     "cursor": {"marker": "bg", "ring": "cursor"},
     "hover": {},
 }
+SLOTS = {"A": "slot-a", "B": "slot-b", "C": "slot-c"}
 
 
 def plotly_template(theme: str) -> dict:
@@ -110,7 +133,10 @@ def theme_json() -> str:
             "template": plotly_template(name),
             "roles": roles,
             "band": t["band"],
+            "provisional": t["provisional"],
             "zero": t["zero"],
+            "bg": t["bg"],
+            "slots": {k: t[v] for k, v in SLOTS.items()},
         }
     return json.dumps(out, indent=1, ensure_ascii=False)
 

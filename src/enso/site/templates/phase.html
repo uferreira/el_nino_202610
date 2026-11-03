@@ -1,22 +1,10 @@
 {% extends "base.html" %}
+{% from "_macros.html" import control %}
 {% block content %}
 {% for panel in page.panels %}
 <section class="panel" id="{{ panel.id }}" data-kind="{{ panel.kind }}" data-src="{{ panel.data }}" aria-busy="true">
   <div class="controls">
-    {% for control in panel.controls %}
-    <label class="field">
-      <span class="field__label">{{ control.label }}</span>
-      <select name="{{ control.name }}" data-control>
-        {% for group, options in control.groups() %}
-        <optgroup label="{{ group }}">
-          {% for o in options %}
-          <option value="{{ o.value }}"{% if o.value == control.default %} selected{% endif %}>{{ o.label }}</option>
-          {% endfor %}
-        </optgroup>
-        {% endfor %}
-      </select>
-    </label>
-    {% endfor %}
+    {% for c in panel.controls %}{{ control(c) }}{% endfor %}
     <div class="field" role="group" aria-labelledby="{{ panel.id }}-events-label">
       <span class="field__label" id="{{ panel.id }}-events-label">Highlight an El Niño</span>
       <div class="segmented">
@@ -36,27 +24,29 @@
       <div class="now" aria-live="polite">
         <div class="now__head">
           <span class="now__month" data-field="now.month"></span>
-          <span class="now__state" data-field="now.state"></span>
+          <span class="now__state"><span data-field="now.state"></span> <span class="tag">provisional</span></span>
         </div>
         <dl class="now__values">
-          <div><dt data-field="now.value_label"></dt><dd data-field="now.value"></dd></div>
-          <div><dt>Rate</dt><dd data-field="now.rate"></dd></div>
+          <div><dt data-field="now.observed_label"></dt><dd data-field="now.observed"></dd></div>
+          <div data-optional="now.anomaly"><dt>Anomaly</dt><dd data-field="now.anomaly"></dd></div>
+          <div><dt>Rate, provisional</dt><dd data-field="now.rate"></dd></div>
         </dl>
-        <p class="now__note">Filtered values. Observed monthly mean <span data-field="now.observed"></span>.
+        <p class="now__note"><span data-field="now.note"></span>
           Data through <span data-field="now.through"></span>, updated <span data-field="now.updated"></span>.</p>
       </div>
 
       <ul class="key" aria-label="Legend">
-        <li><span class="swatch swatch--history"></span>Whole record <span class="key__detail" data-field="window"></span></li>
+        <li><span class="swatch swatch--history"></span>Whole record<span class="key__detail" data-field="window"></span></li>
         <li><span class="swatch swatch--recent"></span>Latest 12 months</li>
+        <li><span class="swatch swatch--provisional"></span><span>Provisional, last <span data-field="provisional_months"></span> months</span></li>
         <li class="key__highlight" hidden><span class="swatch swatch--highlight"></span><span data-field="highlight.range"></span>
           <button type="button" class="link-button" data-action="clear">Clear</button></li>
       </ul>
 
       <div class="plot-box">
-        <div class="plot plot--fill" data-plot="time" role="img" aria-label="Time series of the value and its rate of change"></div>
+        <div class="plot plot--fill" data-plot="time" role="img" aria-label="Time series of the value, its anomaly and its rate of change"></div>
       </div>
-      <p class="hint">Drag across the time series to highlight a period; double-click or Clear removes it.</p>
+      <p class="hint">Bold: the filtered anomaly (seasonal cycle removed). Drag across the time series to highlight a period; double-click or Clear removes it.</p>
     </div>
   </div>
 

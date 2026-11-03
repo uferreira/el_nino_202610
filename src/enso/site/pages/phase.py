@@ -1,24 +1,30 @@
-"""Phase diagrams page: the loop (T, dT/dt) linked to its two time series.
+"""Phase diagrams page: the loop (T, dT/dt) linked to its time series.
 
-One JSON file per dataset holds both figures plus the readout text. All
-numbers and labels are produced here; site.js only draws them, links hover
-and highlights, and paints colours from the theme.
+One JSON file per dataset holds both figures, the loop arrays used for
+highlighting, and the readout text. All numbers and labels are produced
+here; site.js only draws them, links hover and highlights, and paints
+colours from the theme.
+
+The last ``provisional_months`` of every filtered record will still change
+as new observations arrive (METHODS.md, "Provisional end"): that stretch is
+dashed on the loop and shaded on the time panel.
 """
 
 from __future__ import annotations
 
 from datetime import date
 
-import numpy as np
-from plotly.subplots import make_subplots
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from enso import series
 from enso.config import Config, Dataset
 from enso.phasespace import PhaseSeries, compute, month_label
+from enso.site.figures import export, fmt, history_paths, month_after, nice_step, padded, rnd
 from enso.site.registry import Control, Option, Page, Panel
 
 RECENT_MONTHS = 12
+DASH = "4px,3px"
 # Decimals kept in the JSON and shown to readers, per unit: (value, rate).
 DECIMALS = {"°C": (3, 4), "mm": (1, 2)}
 SHOW = {"°C": (2, 2), "mm": (0, 1)}
@@ -47,65 +53,52 @@ def axis_labels(ds: Dataset) -> dict:
     }
 
 
-def _fmt(x: float, decimals: int, signed: bool = False) -> str:
-    s = f"{x:+.{decimals}f}" if signed else f"{x:.{decimals}f}"
-    return s.replace("-", "−")  # true minus sign: never read as a dash
+_SERIES: dict[tuple[int, str], tuple[Config, PhaseSeries]] = {}
 
 
-def _round(a: np.ndarray, decimals: int) -> list[float]:
-    return np.round(np.asarray(a, dtype=float), decimals).tolist()
-
-
-def _export(fig: go.Figure) -> dict:
-    """Figure as plain JSON, without plotly.py's default template: site.js
-    applies the theme's template, so the default would only add weight."""
-    out = fig.to_plotly_json()
-    out["layout"].pop("template", None)
-    return out
-
-
-def _month_after(period: str, n: int) -> str:
-    y, m = map(int, period.split("-"))
-    y, m = divmod(y * 12 + m - 1 + n, 12)
-    return f"{y:04d}-{m + 1:02d}"
-
-
-def _padded(a: np.ndarray, frac: float = 0.06) -> list[float]:
-    lo, hi = float(np.min(a)), float(np.max(a))
-    pad = (hi - lo) * frac or 1.0
-    return [lo - pad, hi + pad]
+def phase_series(cfg: Config, key: str) -> PhaseSeries:
+    """The analysed record, computed once per config (Compare reuses it)."""
+    hit = _SERIES.get((id(cfg), key))
+    if hit is None or hit[0] is not cfg:
+        hit = _SERIES[(id(cfg), key)] = (cfg, compute(series.read(key), cfg.dataset(key), cfg.filter))
+    return hit[1]
 
 
 # ---------------------------------------------------------------------------
 # Figures
 # ---------------------------------------------------------------------------
 
-def _reference_x(ps: PhaseSeries) -> tuple[float, str]:
-    """Vertical reference on the loop: zero for anomalies, the mean otherwise."""
-    if ps.dataset.quantity == "absolute":
-        m = float(ps.T.mean())
-        return m, f"mean {_fmt(m, SHOW[ps.dataset.unit][0])}"
-    return 0.0, ""
+def first_provisional(ps: PhaseSeries, cfg: Config) -> int:
+    """Index of the first provisional month."""
+    return max(ps.n_months - cfg.filter.provisional_months, 0)
 
 
-def phase_figure(ps: PhaseSeries) -> dict:
+def phase_figure(ps: PhaseSeries, cfg: Config) -> dict:
     ds = ps.dataset
-    dv, dr = DECIMALS[ds.unit]
+    dec = DECIMALS[ds.unit]
+    dv, dr = dec
     sv, sr = SHOW[ds.unit]
     lab = axis_labels(ds)
     n, k = ps.n_months, ps.ndots
-    r0 = (n - RECENT_MONTHS) * k            # fine index where the recent tail starts
-    labels = [month_label(p) for p in ps.periods]
+    p = first_provisional(ps, cfg)
+    r = max(n - RECENT_MONTHS, 0)
+    labels = [month_label(q) + (" (provisional)" if i >= p else "") for i, q in enumerate(ps.periods)]
 
     fig = go.Figure()
-    fig.add_scatter(x=_round(ps.T, dv), y=_round(ps.V, dr), mode="lines",
-                    line={"width": 1.25}, hoverinfo="skip", meta={"role": "history"})
-    fig.add_scatter(x=[], y=[], mode="lines", line={"width": 2.5},
-                    hoverinfo="skip", meta={"role": "highlight"})
-    fig.add_scatter(x=_round(ps.T[r0:], dv), y=_round(ps.V[r0:], dr), mode="lines",
+    fig.add_traces(history_paths(ps.T, ps.V, 12 * k, p * k, dec))
+    fig.add_scatter(x=rnd(ps.T[p * k:], dv), y=rnd(ps.V[p * k:], dr), mode="lines",
+                    line={"width": 1.25, "dash": DASH}, hoverinfo="skip",
+                    meta={"role": "history", "provisional": True})
+    for prov in (False, True):
+        fig.add_scatter(x=[], y=[], mode="lines",
+                        line={"width": 2.5, **({"dash": DASH} if prov else {})},
+                        hoverinfo="skip", meta={"role": "highlight", "provisional": prov})
+    fig.add_scatter(x=rnd(ps.T[r * k:p * k + 1], dv), y=rnd(ps.V[r * k:p * k + 1], dr), mode="lines",
                     line={"width": 2}, hoverinfo="skip", meta={"role": "recent"})
-    fig.add_scatter(x=_round(ps.T_month[-RECENT_MONTHS:], dv),
-                    y=_round(ps.V_month[-RECENT_MONTHS:], dr), mode="markers",
+    fig.add_scatter(x=rnd(ps.T[max(p, r) * k:], dv), y=rnd(ps.V[max(p, r) * k:], dr), mode="lines",
+                    line={"width": 2, "dash": DASH}, hoverinfo="skip",
+                    meta={"role": "recent", "provisional": True})
+    fig.add_scatter(x=rnd(ps.T_month[r:], dv), y=rnd(ps.V_month[r:], dr), mode="markers",
                     marker={"size": 5}, hoverinfo="skip", meta={"role": "recent"})
     fig.add_scatter(x=[round(float(ps.T[-1]), dv)], y=[round(float(ps.V[-1]), dr)],
                     mode="markers", marker={"size": 12, "line": {"width": 2}},
@@ -114,21 +107,25 @@ def phase_figure(ps: PhaseSeries) -> dict:
                     hoverinfo="skip", meta={"role": "cursor"})
     # Invisible monthly markers: the hover targets (bigger than the line).
     fig.add_scatter(
-        x=_round(ps.T_month, dv), y=_round(ps.V_month, dr), mode="markers",
+        x=rnd(ps.T_month, dv), y=rnd(ps.V_month, dr), mode="markers",
         marker={"size": 10, "opacity": 0}, customdata=labels,
         hovertemplate=(f"<b>%{{customdata}}</b><br>{lab['value_short']} %{{x:.{sv}f}} {ds.unit}"
                        f"<br>Rate %{{y:+.{sr}f}} {ds.rate_unit}<extra></extra>"),
         meta={"role": "hover"},
     )
 
-    ref, ref_label = _reference_x(ps)
+    if ds.quantity == "absolute":
+        ref = float(ps.T.mean())
+        ref_label = f"mean {fmt(ref, sv)}"
+    else:
+        ref, ref_label = 0.0, ""
     shapes = [
         {"type": "line", "xref": "paper", "x0": 0, "x1": 1, "yref": "y", "y0": 0, "y1": 0, "layer": "below"},
         {"type": "line", "xref": "x", "x0": ref, "x1": ref, "yref": "paper", "y0": 0, "y1": 1,
          "layer": "below", "line": {"dash": "dot"}},
     ]
+    xr, yr = padded(ps.T, extra_high=0.08), padded(ps.V, extra_high=0.04)
     # Label the current month on the side with more room, so it is never clipped.
-    xr = _padded(ps.T)
     right_side = float(ps.T[-1]) > xr[0] + 0.7 * (xr[1] - xr[0])
     annotations = [{
         "x": float(ps.T[-1]), "y": float(ps.V[-1]), "xref": "x", "yref": "y",
@@ -148,87 +145,154 @@ def phase_figure(ps: PhaseSeries) -> dict:
         hoverdistance=24,
         dragmode="zoom",
         uirevision=ds.key,
-        xaxis={"title": {"text": lab["value"]}, "range": _padded(ps.T), "nticks": 7},
-        yaxis={"title": {"text": lab["rate"]}, "range": _padded(ps.V), "nticks": 7},
+        xaxis={"title": {"text": lab["value"]}, "range": xr, "nticks": 7},
+        yaxis={"title": {"text": lab["rate"]}, "range": yr, "nticks": 7},
         shapes=shapes,
         annotations=annotations,
     )
-    return _export(fig)
+    return export(fig)
 
 
-def time_figure(ps: PhaseSeries) -> dict:
+def time_figure(ps: PhaseSeries, cfg: Config) -> dict:
+    """Two rows on one time axis: the value (thin grey full series and, on a
+    secondary axis at the same scale, the bold filtered anomaly) and the rate."""
     ds = ps.dataset
     dv, dr = DECIMALS[ds.unit]
     sv, sr = SHOW[ds.unit]
     lab = axis_labels(ds)
     x = ps.periods
-    rows = [("T", ps.T_month, dv, sv, lab["value_short"], ds.unit),
-            ("V", ps.V_month, dr, sr, "Rate", ds.rate_unit)]
+    p = first_provisional(ps, cfg)
+    cycle = ps.has_seasonal_cycle
+    unit = ds.unit
 
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.07)
-    for i, (row, y, d, s, name, unit) in enumerate(rows, start=1):
-        fmt = f"+.{s}f" if row == "V" else f".{s}f"
-        fig.add_scatter(x=x, y=_round(y, d), mode="lines", line={"width": 1.25},
-                        hovertemplate=f"<b>%{{x|%b %Y}}</b>  {name} %{{y:{fmt}}} {unit}<extra></extra>",
-                        meta={"role": "series", "row": row}, row=i, col=1)
-        fig.add_scatter(x=[], y=[], mode="lines", line={"width": 2.5}, hoverinfo="skip",
-                        meta={"role": "highlight", "row": row}, row=i, col=1)
-        fig.add_scatter(x=x[-RECENT_MONTHS:], y=_round(y[-RECENT_MONTHS:], d), mode="lines",
-                        line={"width": 2}, hoverinfo="skip",
-                        meta={"role": "recent", "row": row}, row=i, col=1)
-        fig.add_scatter(x=[x[-1]], y=[round(float(y[-1]), d)], mode="markers",
-                        marker={"size": 8, "line": {"width": 1.5}}, hoverinfo="skip",
-                        meta={"role": "now", "row": row}, row=i, col=1)
-        fig.add_scatter(x=[], y=[], mode="markers", marker={"size": 10, "line": {"width": 2}},
-                        hoverinfo="skip", meta={"role": "cursor", "row": row}, row=i, col=1)
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.09,
+                        specs=[[{"secondary_y": cycle}], [{}]])
 
-    ref, _ = _reference_x(ps)
+    def add(trace: dict, row: int, secondary: bool = False):
+        fig.add_trace(go.Scatter(**trace), row=row, col=1,
+                      secondary_y=secondary if (row == 1 and cycle) else None)
+
+    def family(y, decimals, row: str, of: str, secondary: bool, row_i: int):
+        """Highlight, recent tail, current point and cursor for one source line."""
+        add({"x": [], "y": [], "mode": "lines", "line": {"width": 2.75}, "hoverinfo": "skip",
+             "meta": {"role": "highlight", "row": row, "of": of}}, row_i, secondary)
+        add({"x": x[-RECENT_MONTHS:], "y": rnd(y[-RECENT_MONTHS:], decimals), "mode": "lines",
+             "line": {"width": 2.25}, "hoverinfo": "skip",
+             "meta": {"role": "recent", "row": row, "of": of}}, row_i, secondary)
+        add({"x": [x[-1]], "y": [round(float(y[-1]), decimals)], "mode": "markers",
+             "marker": {"size": 8, "line": {"width": 1.5}}, "hoverinfo": "skip",
+             "meta": {"role": "now", "row": row}}, row_i, secondary)
+        add({"x": [], "y": [], "mode": "markers", "marker": {"size": 10, "line": {"width": 2}},
+             "hoverinfo": "skip", "meta": {"role": "cursor", "row": row, "of": of}}, row_i, secondary)
+
+    # Row 1: value.
+    anomaly_label = "Anomaly" if cycle else lab["value_short"]
+    if cycle:
+        add({"x": x, "y": rnd(ps.T_month, dv), "mode": "lines", "line": {"width": 1},
+             "hovertemplate": f"{lab['value_short']} %{{y:.{sv}f}} {unit}<extra></extra>",
+             "meta": {"role": "series", "row": "T"}}, 1, False)
+    add({"x": x, "y": rnd(ps.anomaly, dv), "mode": "lines", "line": {"width": 2},
+         "hovertemplate": f"<b>%{{x|%b %Y}}</b>  {anomaly_label} %{{y:+.{sv}f}} {unit}<extra></extra>",
+         "meta": {"role": "anomaly", "row": "T"}}, 1, True)
+    family(ps.anomaly, dv, "T", "anomaly", True, 1)
+
+    # Row 2: rate.
+    add({"x": x, "y": rnd(ps.V_month, dr), "mode": "lines", "line": {"width": 1.25},
+         "hovertemplate": f"<b>%{{x|%b %Y}}</b>  Rate %{{y:+.{sr}f}} {ds.rate_unit}<extra></extra>",
+         "meta": {"role": "series", "row": "V"}}, 2)
+    family(ps.V_month, dr, "V", "series", False, 2)
+
+    # Axis names as plotly assigned them ("y", "y2", ...).
+    y_anom = next(t.yaxis for t in fig.data if t.meta["role"] == "anomaly") or "y"
+    y_rate = next(t.yaxis for t in fig.data if t.meta == {"role": "series", "row": "V"})
+    ax = lambda name: "yaxis" + name[1:]  # "y3" -> "yaxis3"
+
+    if cycle:
+        # Same scale on both axes (one unit is the same height), anomaly zero at the series mean.
+        m = float(ps.T_month.mean())
+        lo = min(float(ps.T_month.min()), float(ps.anomaly.min()) + m)
+        hi = max(float(ps.T_month.max()), float(ps.anomaly.max()) + m)
+        pad = (hi - lo) * 0.06
+        step = nice_step(hi - lo, 3)
+        fig.layout["yaxis"].update(range=[lo - pad, hi + pad], tick0=0, dtick=step,
+                                   title={"text": f"{lab['value_short']} ({unit})"})
+        fig.layout[ax(y_anom)].update(range=[lo - pad - m, hi + pad - m], showgrid=False,
+                                      tick0=0, dtick=step,
+                                      title={"text": f"Anomaly ({unit})"})
+    else:
+        fig.layout["yaxis"].update(range=padded(ps.anomaly, 0.06),
+                                   title={"text": f"{lab['value_short']} ({unit})"})
+    fig.layout[ax(y_rate)].update(title={"text": lab["rate_short"]}, range=padded(ps.V_month, 0.06))
+
+    # Provisional zone: shaded, labelled in the gap between the rows (no data there).
+    x_end = month_after(x[-1], 9)
+    row1 = fig.layout["yaxis"].domain
+    row2 = fig.layout[ax(y_rate)].domain
+    gap_mid = (row1[0] + row2[1]) / 2
+    shapes = [
+        {"type": "line", "xref": "x domain", "x0": 0, "x1": 1, "yref": y_anom, "y0": 0, "y1": 0,
+         "layer": "below", "line": {"dash": "dot"}},
+        {"type": "line", "xref": "x domain", "x0": 0, "x1": 1, "yref": y_rate, "y0": 0, "y1": 0,
+         "layer": "below"},
+        {"type": "rect", "name": "provisional", "xref": "x", "yref": "paper", "layer": "below",
+         "x0": x[p], "x1": x_end, "y0": 0, "y1": 1, "line": {"width": 0}},
+    ]
+    annotations = [{
+        "x": x[p], "xref": "x", "y": gap_mid, "yref": "paper", "text": "provisional ▸",
+        "showarrow": False, "xanchor": "right", "yanchor": "middle", "xshift": -2,
+    }]
+
     fig.update_layout(
-        margin={"l": 64, "r": 16, "t": 28, "b": 28},
+        margin={"l": 64, "r": 56 if cycle else 16, "t": 28, "b": 28},
+        meta={"narrow_top": 8},   # phones: no PNG button, so no room needed above
         showlegend=False,
         hovermode="x",
         hoverdistance=-1,
         dragmode="select",
         selectdirection="h",
         uirevision=ds.key,
-        shapes=[
-            {"type": "line", "xref": "x domain", "x0": 0, "x1": 1, "yref": "y", "y0": ref, "y1": ref,
-             "layer": "below", "line": {"dash": "dot"}},
-            {"type": "line", "xref": "x2 domain", "x0": 0, "x1": 1, "yref": "y2", "y0": 0, "y1": 0,
-             "layer": "below"},
-        ],
+        shapes=shapes,
+        annotations=annotations,
     )
     spikes = {"showspikes": True, "spikemode": "across", "spikesnap": "hovered data",
               "spikethickness": 1, "spikedash": "solid"}
-    # A little room after the last month so the current-month marker is not clipped.
-    end_pad = _month_after(x[-1], 6)
-    fig.update_xaxes(range=[x[0], end_pad], **spikes)
+    fig.update_xaxes(range=[x[0], x_end], **spikes)
     fig.update_xaxes(showticklabels=False, ticks="", row=1, col=1)
     fig.update_yaxes(fixedrange=True, nticks=4)
-    fig.update_yaxes(title_text=lab["value_short"] + f" ({ds.unit})", row=1, col=1)
-    fig.update_yaxes(title_text=lab["rate_short"], row=2, col=1)
-    return _export(fig)
+    return export(fig)
 
 
 # ---------------------------------------------------------------------------
 # Readout and events
 # ---------------------------------------------------------------------------
 
-def readout(ps: PhaseSeries) -> dict:
+def readout(ps: PhaseSeries, cfg: Config) -> dict:
     ds = ps.dataset
     sv, sr = SHOW[ds.unit]
     lab = axis_labels(ds)
-    T, V = float(ps.T[-1]), float(ps.V[-1])
+    V = float(ps.V[-1])
     last = ps.periods[-1]
+    w = ps.window
     fetched = date.fromisoformat(ps.fetched) if ps.fetched else None
+    month_name = month_label(last, short=False).split()[0]
+    window = f"{month_label(w['start'])} to {month_label(w['end'])}"
+    notes = []
+    if ps.has_seasonal_cycle:
+        notes.append(f"Anomaly: against the {window} average for {month_name}.")
+    if ds.quantity == "record_mean":
+        notes.append(f"Sea level is relative to its {window} mean.")
+    notes.append(f"The rate and the last {cfg.filter.provisional_months} months of the loop "
+                 f"are provisional: they will change as new data arrive.")
     return {
         "month": month_label(last, short=False),
-        "value_label": lab["value_short"],
-        "value": f"{_fmt(T, sv)} {ds.unit}",
-        "rate": f"{_fmt(V, sr, signed=True)} {ds.rate_unit}",
+        "observed_label": f"{lab['value_short']}, observed",
+        "observed": f"{fmt(float(ps.observed[-1]), sv)} {ds.unit}",
+        "anomaly": (f"{fmt(float(ps.observed_anomaly[-1]), sv, signed=True)} {ds.unit}"
+                    if ps.has_seasonal_cycle else None),
+        "rate": f"{fmt(V, sr, signed=True)} {ds.rate_unit}",
         "state": lab["rate_word"][0] if V >= 0 else lab["rate_word"][1],
         "rising": V >= 0,
-        "observed": f"{_fmt(float(ps.observed[-1]), sv)} {ds.unit}",
+        "note": " ".join(notes),
         "through": month_label(last, short=False),
         "updated": f"{fetched.day} {fetched:%b %Y}" if fetched else "unknown",
     }
@@ -238,35 +302,50 @@ def events(ps: PhaseSeries, cfg: Config) -> list[dict]:
     out = []
     first, last = ps.periods[0], ps.periods[-1]
     for ev in cfg.events:
-        if ev.end < first or ev.start > last:
+        end = ev.end or last
+        if end < first or ev.start > last:
             continue
-        start, end = max(ev.start, first), min(ev.end, last)
+        start, end = max(ev.start, first), min(end, last)
+        running = " (running)" if ev.end is None else ""
         out.append({
             "label": ev.label,
             "i0": ps.periods.index(start),
             "i1": ps.periods.index(end),
-            "range": f"{month_label(start)} to {month_label(end)}",
+            "range": f"{month_label(start)} to {month_label(end)}{running}",
         })
     return out
 
 
 def build_dataset(cfg: Config, key: str) -> dict:
-    ds = cfg.dataset(key)
-    ps = compute(series.read(key), ds, cfg.filter)
+    ps = phase_series(cfg, key)
+    ds = ps.dataset
     w = ps.window
+    dv, dr = DECIMALS[ds.unit]
     return {
         "dataset": {"key": ds.key, "label": ds.label, "long_label": ds.long_label,
                     "source": ps.source},
         "periods": ps.periods,
         "period_labels": [month_label(p) for p in ps.periods],
         "ndots": ps.ndots,
+        "provisional_from": first_provisional(ps, cfg),
+        "provisional_months": cfg.filter.provisional_months,
         "recent_months": RECENT_MONTHS,
         "window": f"{month_label(w['start'])} to {month_label(w['end'])}, {w['n_months']} months",
         "gap_filled_months": int(ps.gap_filled.sum()),
-        "now": readout(ps),
+        "loop": {"x": rnd(ps.T, dv), "y": rnd(ps.V, dr)},
+        "now": readout(ps, cfg),
         "events": events(ps, cfg),
-        "figures": {"phase": phase_figure(ps), "time": time_figure(ps)},
+        "figures": {"phase": phase_figure(ps, cfg), "time": time_figure(ps, cfg)},
     }
+
+
+def default_event(cfg: Config) -> dict:
+    """The running event to highlight on opening, when its index is past the threshold."""
+    ce = cfg.current_event
+    if ce is None:
+        return {}
+    latest = float(phase_series(cfg, ce.dataset).observed_anomaly[-1])
+    return {"default-event": ce.label} if latest >= ce.threshold else {}
 
 
 # ---------------------------------------------------------------------------
@@ -290,11 +369,16 @@ moving right while it builds, across the zero line at its peak, then below
 the zero line moving left as it decays.</p>
 <p>The record is low-pass filtered (Fourier, full periods shorter than about
 18 to 20 months removed) so the loop shows interannual ENSO variability, not
-month-to-month noise. NINO1+2 keeps its seasonal cycle, so it also traces a
-small loop every year. The last months of any filtered record can still move
-a little as new observations arrive.</p>
-<p>Drag across the time series to highlight that stretch of the loop;
-double-click to clear. Hover either view to find the same month in the other.</p>
+month-to-month noise. NINO1+2 and sea level keep their seasonal cycle, so
+they also trace a small loop every year; the bold line in the time panel is
+the same filtered record with the seasonal cycle taken out, so El Niño
+events stand out.</p>
+<p>The filter ends exactly on the latest observation, and the last months of
+the filtered record move as new months arrive. That stretch is dashed on the
+loop and shaded in the time panel (METHODS.md in the repository explains
+how long it is and why).</p>
+<p>Drag across the time series to highlight a period; double-click or Clear
+removes it. Hover either view to find the same month in the other.</p>
 """
 
 
@@ -316,4 +400,5 @@ def page(cfg: Config) -> Page:
         panels=[panel],
         template="phase.html",
         notes_html=NOTES,
+        attrs=default_event(cfg),
     )

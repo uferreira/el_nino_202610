@@ -9,6 +9,7 @@ description = "El Niño phase space: data pipeline and static site generator"
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
+    "scipy",
     "pandas",
     "requests",
     "pyyaml",

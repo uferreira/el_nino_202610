@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_macros.html" import control, page_controls %}
+{% block content %}
+{{ page_controls(page) }}
+
+{% set traj = page.panels[0] %}
+<section class="panel" id="{{ traj.id }}" data-kind="{{ traj.kind }}" data-src="{{ traj.data }}" aria-busy="true">
+  <div class="linked">
+    <div class="linked__loop">
+      <div class="plot plot--square" data-plot="phase" role="img" aria-label="Model trajectory in phase space"></div>
+    </div>
+    <div class="linked__side">
+      <div class="facts">
+        <p class="facts__title" data-field="facts.label"></p>
+        <p class="equation" data-field="facts.equation"></p>
+        <dl class="params">
+          {% for k in ["K1", "K3", "FA", "FF", "B", "W"] %}
+          <div><dt>{{ k }}</dt><dd data-field="facts.{{ k }}"></dd></div>
+          {% endfor %}
+        </dl>
+        <p data-field="facts.regime"></p>
+        <p data-field="facts.note"></p>
+      </div>
+      <p class="hint" data-field="span"></p>
+      <div class="plot-box">
+        <div class="plot plot--fill" data-plot="time" role="img" aria-label="Model time series"></div>
+      </div>
+      <p class="hint">Hover either view to find the same moment in the other.</p>
+    </div>
+  </div>
+  <p class="panel__error" data-error hidden>Could not load this run.</p>
+</section>
+
+{% set sec = page.panels[1] %}
+<section class="panel" id="{{ sec.id }}" data-kind="{{ sec.kind }}" data-src="{{ sec.data }}" aria-busy="true">
+  <h2 class="panel__title">{{ sec.title }}</h2>
+  <p class="panel__caption">{{ sec.caption }}</p>
+  <div class="controls">
+    {% for c in sec.controls %}{{ control(c) }}{% endfor %}
+  </div>
+  <div class="single">
+    <div class="plot plot--square" data-plot="section" role="img" aria-label="Poincaré section"></div>
+    <div class="facts">
+      <p class="facts__title" data-field="phase_label"></p>
+      <p data-field="count"></p>
+      <p data-field="regime"></p>
+    </div>
+  </div>
+  <p class="panel__error" data-error hidden>Could not load this section.</p>
+</section>
+
+<details class="notes">
+  <summary>About the model</summary>
+  {{ page.notes_html | safe }}
+</details>
+{% endblock %}

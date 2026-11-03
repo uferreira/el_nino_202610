@@ -34,6 +34,8 @@ class PhaseSeries:
     T: np.ndarray             # fine grid, (n_months - 1) * ndots + 1 points
     V: np.ndarray             # dT/dt on the fine grid, unit per month
     observed: np.ndarray      # monthly observations, same offset as T
+    anomaly: np.ndarray       # monthly filtered anomaly (before the climatology is re-added)
+    observed_anomaly: np.ndarray  # monthly observations minus the window climatology
     gap_filled: np.ndarray    # monthly, bool
     window: dict
     offset: float             # value subtracted from the observations (record_mean)
@@ -44,6 +46,10 @@ class PhaseSeries:
     @property
     def n_months(self) -> int:
         return len(self.periods)
+
+    @property
+    def has_seasonal_cycle(self) -> bool:
+        return self.dataset.quantity != "anomaly"
 
     @property
     def T_month(self) -> np.ndarray:
@@ -78,10 +84,11 @@ def compute(record: Record, ds: Dataset, params: FilterParams) -> PhaseSeries:
     gaps = record.gap_filled[keep]
 
     if ds.quantity == "anomaly":
-        filtered = passa_baixa(params.HN1, params.HN2, values)
+        clim = np.zeros_like(values)
     else:
         clim = climatology(month, values)[month - 1]
-        filtered = passa_baixa(params.HN1, params.HN2, values - clim) + clim
+    filtered_anomaly = passa_baixa(params.HN1, params.HN2, values - clim)
+    filtered = filtered_anomaly + clim
 
     T, V, _accel = deri_fourier(params.NDOTS, filtered)
     sigma_filter, _ = compute_sigma(values, filtered, T, params.NDOTS)
@@ -94,6 +101,8 @@ def compute(record: Record, ds: Dataset, params: FilterParams) -> PhaseSeries:
         T=T - offset,
         V=V,
         observed=values - offset,
+        anomaly=filtered_anomaly,
+        observed_anomaly=values - clim,
         gap_filled=gaps,
         window=window,
         offset=offset,
