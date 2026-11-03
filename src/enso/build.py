@@ -3,16 +3,27 @@
     python -m enso.build              # writes docs/
     python -m enso.build --out DIR    # somewhere else (tests use this)
 
-No network access: everything comes from the committed series files, and
-the same files always give the same output (CI checks docs/ is current).
+    python -m enso.build --check      # is docs/ what the committed code and data give?
+
+No network access: everything comes from the committed series files.
+
+Platform stability: the same files give the same output on any machine up to
+float noise (about 1e-15: OpenBLAS picks its kernels by CPU, which changes the
+order of sums in the filter). Every float is rounded to ``DECIMALS`` places
+just before it is written, which is coarser than any series needs (they use
+1 to 4) and far above the noise, and ``--check`` compares the parsed JSON
+within one step of that last place, so a value that falls on a rounding
+boundary cannot fail it.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
@@ -25,11 +36,25 @@ from enso.site.pages import all_pages
 SITE_DIR = Path(__file__).resolve().parent / "site"
 PLOTLY_JS = "https://cdn.jsdelivr.net/npm/plotly.js-basic-dist-min@4.1.1/plotly-basic.min.js"
 GENERATED = ("data", "assets", ".nojekyll")  # removed and rewritten on every build
+DECIMALS = 4                  # every float in the JSON output
+TOLERANCE = 1.5 * 10.0 ** -DECIMALS   # --check: one step of the last place, plus slack
+
+
+def stable(obj):
+    """``obj`` with every float rounded to DECIMALS places (and -0.0 as 0.0),
+    so float noise between machines does not reach the output."""
+    if isinstance(obj, float):
+        return round(obj, DECIMALS) + 0.0
+    if isinstance(obj, dict):
+        return {k: stable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [stable(v) for v in obj]
+    return obj
 
 
 def _write_json(path: Path, obj) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(obj, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    text = json.dumps(stable(obj), separators=(",", ":"), ensure_ascii=False, allow_nan=False)
     path.write_text(text, encoding="utf-8", newline="\n")
     return len(text.encode("utf-8"))
 
@@ -93,10 +118,62 @@ def build(out: Path = DOCS_DIR, cfg: Config | None = None) -> dict:
     return sizes
 
 
+def json_differences(a, b, path: str = "", tol: float = TOLERANCE) -> list[str]:
+    """Where two parsed JSON values differ, numbers compared within ``tol``."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return [] if a is b else [f"{path}: {a!r} != {b!r}"]
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return [] if math.isclose(a, b, rel_tol=0.0, abs_tol=tol) else [f"{path}: {a!r} != {b!r}"]
+    if isinstance(a, dict) and isinstance(b, dict):
+        if a.keys() != b.keys():
+            return [f"{path}: keys {sorted(a.keys() ^ b.keys())} in one only"]
+        return [d for k in a for d in json_differences(a[k], b[k], f"{path}/{k}", tol)]
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            return [f"{path}: length {len(a)} != {len(b)}"]
+        return [d for i, (u, v) in enumerate(zip(a, b)) for d in json_differences(u, v, f"{path}[{i}]", tol)]
+    return [] if a == b else [f"{path}: {str(a)[:60]!r} != {str(b)[:60]!r}"]
+
+
+def check(docs: Path = DOCS_DIR) -> list[str]:
+    """Build into a temporary folder and compare with ``docs``: JSON by
+    value (within TOLERANCE), every other file byte for byte."""
+    docs = Path(docs)
+    problems = []
+    with tempfile.TemporaryDirectory() as tmp:
+        fresh = Path(tmp)
+        build(fresh)
+        files = lambda root: {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()}
+        have, want = files(docs), files(fresh)
+        problems += [f"{f}: not in a fresh build" for f in sorted(have - want)]
+        problems += [f"{f}: missing (run python -m enso.build)" for f in sorted(want - have)]
+        for f in sorted(have & want):
+            a, b = (docs / f).read_bytes(), (fresh / f).read_bytes()
+            if a == b:
+                continue
+            if f.endswith(".json"):
+                diffs = json_differences(json.loads(a), json.loads(b))
+                problems += [f"{f}{d}" for d in diffs[:5]]
+                if len(diffs) > 5:
+                    problems.append(f"{f}: and {len(diffs) - 5} more")
+            else:
+                problems.append(f"{f}: differs")
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=DOCS_DIR)
+    parser.add_argument("--check", action="store_true",
+                        help="compare --out with a fresh build instead of writing it")
     args = parser.parse_args(argv)
+    if args.check:
+        problems = check(args.out)
+        for p in problems:
+            print(p)
+        print(f"{args.out}: {'differs from' if problems else 'matches'} a fresh build "
+              f"(JSON numbers within {TOLERANCE:g})")
+        return 1 if problems else 0
     sizes = build(args.out)
     for rel, n in sorted(sizes.items()):
         print(f"{n / 1024:8.1f} KB  {rel}")

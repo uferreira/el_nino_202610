@@ -22,16 +22,16 @@ jobs:
 
       - name: Install package and test tools
         run: |
-          pip install -e ".[test]"
+          pip install -e ".[test]" -c constraints.txt
           python -m playwright install --with-deps chromium
 
       - name: Tests (analysis, build output, browser)
         run: python -m pytest -q
 
-      # docs/ is the published site. It must be exactly what the committed
-      # data and code produce, so nobody edits it by hand or forgets a build.
+      # docs/ is the published site. It must be what the committed data and
+      # code produce, so nobody edits it by hand or forgets a build. JSON is
+      # compared by value (within one step of its 4th decimal): float noise
+      # between CPUs must not fail it. Only on the pinned versions (3.12).
       - name: docs/ matches a fresh build
         if: matrix.python-version == '3.12'
-        run: |
-          python -m enso.build
-          git diff --exit-code --stat -- docs
+        run: python -m enso.build --check

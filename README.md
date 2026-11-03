@@ -44,7 +44,7 @@ tests/                 pytest, including a Playwright browser test
 ## Commands
 
 ```bash
-pip install -e ".[test]"
+pip install -e ".[test]" -c constraints.txt   # the exact versions docs/ is built with
 python -m playwright install chromium     # for the browser tests and screenshots
 
 python -m enso.fetch                       # download all datasets (UHSLC takes minutes)
@@ -73,7 +73,11 @@ held, and the other datasets still update.
 ## Publishing
 
 GitHub Pages serves `docs/` from `main`. CI fails if `docs/` differs from a fresh
-build of the committed code and data.
+build of the committed code and data (`python -m enso.build --check`; JSON
+numbers within one step of their 4th decimal, everything else byte for byte).
+The build rounds every float to 4 decimals before writing it, and every
+machine that builds `docs/` installs the versions in `constraints.txt`, so a
+build on Windows, WSL and GitHub's runners gives the same bytes.
 
 ## Updates
 
@@ -107,7 +111,7 @@ Once, in a normal PowerShell in the repository folder:
 
 ```powershell
 py -3.12 -m venv .venv                       # or any Python >= 3.10
-.venv\Scripts\python.exe -m pip install -e ".[test]"
+.venv\Scripts\python.exe -m pip install -e ".[test]" -c constraints.txt
 git config user.name; git push --dry-run     # git identity set, push works without a prompt
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install_sea_level_task.ps1

@@ -241,7 +241,7 @@ def test_duffing_section_axes_are_the_union_of_all_phases(site):
     lo, hi = run.section[..., 0].min(), run.section[..., 0].max()
     xr = _load(site, "data/duffing/section/alado/1/0.json")["figure"]["layout"]["xaxis"]["range"]
     span = hi - lo
-    assert xr == pytest.approx([lo - 0.04 * span, hi + 0.04 * span])
+    assert xr == pytest.approx([lo - 0.04 * span, hi + 0.04 * span], abs=1e-4)   # 4 decimals
 
 
 def test_compare_time_strip_is_the_normalised_anomaly_without_the_model(site):
@@ -316,3 +316,34 @@ def test_control_rejects_duplicates_and_unknown_default():
         Control("ds", "Dataset", [Option("a", "A"), Option("a", "A2")], "a")
     with pytest.raises(ValueError):
         Control("ds", "Dataset", [Option("a", "A")], "b")
+
+
+def test_float_noise_does_not_reach_the_output():
+    from enso.build import stable
+    assert stable({"a": [0.1 + 0.2, -1e-17, 2], "b": (1.23456789,), "c": True, "d": "x"}) == \
+        {"a": [0.3, 0.0, 2], "b": [1.2346], "c": True, "d": "x"}
+    assert str(stable(-1e-17)) == "0.0"          # no "-0.0"
+    assert stable(0.1235) == 0.1235              # values already at 4 decimals stay put
+
+
+def test_docs_check_compares_numbers_within_the_tolerance():
+    from enso.build import TOLERANCE, json_differences
+    a = {"x": [1.0, 2.0], "s": "t", "n": 3}
+    assert json_differences(a, {"x": [1.0001, 2.0], "s": "t", "n": 3}) == []   # a boundary flip
+    assert json_differences(a, {"x": [1.001, 2.0], "s": "t", "n": 3}) == ["/x[0]: 1.0 != 1.001"]
+    assert json_differences(a, {"x": [1.0], "s": "t", "n": 3}) == ["/x: length 2 != 1"]
+    assert json_differences(a, {"x": [1.0, 2.0], "s": "u", "n": 3}) == ["/s: 't' != 'u'"]
+    assert TOLERANCE < 1e-3
+
+
+def test_installed_versions_match_constraints():
+    """docs/ must be built on the pinned versions (constraints.txt)."""
+    import sys
+    from importlib.metadata import version
+    from pathlib import Path
+    if sys.version_info < (3, 11):
+        pytest.skip("the pins need Python 3.11 or newer")
+    lines = (Path(__file__).resolve().parents[1] / "constraints.txt").read_text().splitlines()
+    pins = [ln.split(";")[0].strip().split("==") for ln in lines if "==" in ln and not ln.startswith("#")]
+    wrong = [f"{n} {version(n)} (pinned {v})" for n, v in pins if version(n) != v]
+    assert not wrong, "pip install -e '.[test]' -c constraints.txt: " + ", ".join(wrong)
