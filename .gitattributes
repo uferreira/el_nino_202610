@@ -1,0 +1,8 @@
+# Store text files with LF line endings. On Windows, core.autocrlf still
+# checks them out as CRLF; WSL and Linux see LF.
+* text=auto
+
+# Legacy NOAA file stored with CRLF endings: keep it byte for byte.
+data/sst1950_1981.txt -text
+
+*.png binary

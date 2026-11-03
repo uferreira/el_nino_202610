@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package and test tools
+        run: |
+          pip install -e ".[test]"
+          python -m playwright install --with-deps chromium
+
+      - name: Tests (analysis, build output, browser)
+        run: python -m pytest -q
+
+      # docs/ is the published site. It must be exactly what the committed
+      # data and code produce, so nobody edits it by hand or forgets a build.
+      - name: docs/ matches a fresh build
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m enso.build
+          git diff --exit-code --stat -- docs

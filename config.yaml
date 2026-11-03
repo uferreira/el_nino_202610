@@ -1,0 +1,121 @@
+# el_nino_202610 configuration.
+#
+# Everything the site shows is decided here and computed in Python.
+# The browser only draws what `python -m enso.build` writes to docs/.
+
+# Fourier low-pass filter (same parameters as the reference Fortran).
+filter:
+  HN1: 10.0   # half-period parameter: 20-month full-period pass edge
+  HN2: 9.0    # half-period parameter: 18-month full-period stop edge
+  NDOTS: 5    # interpolated points per month on the phase loop
+  # Analysis window, inclusive "YYYY-MM". null end = latest observation;
+  # null start = base_year, in the month after the end month, so the window
+  # spans whole 12-month cycles (enso.window.resolve_fourier_window).
+  window:
+    start: null
+    end: null
+    base_year: 1975
+
+# Variable groups: one per kind of quantity. A group sets the unit and the
+# heading of its block in the dataset selector.
+groups:
+  sst:
+    label: Sea surface temperature
+    unit: "°C"
+  sea_level:
+    label: Sea level
+    unit: mm
+
+# Datasets, in selector order. To add one, add an entry here and, if its
+# source type is new, a fetcher in enso/fetch.py (SOURCES).
+#
+#   quantity: what the phase diagram's T axis shows
+#     absolute     filtered value with its seasonal cycle (NINO1+2 SST, °C)
+#     anomaly      the source already removed the seasonal cycle (NOAA anomalies)
+#     record_mean  filtered value with seasonal cycle, minus the window mean
+#   cadence: monthly (a weekly series would set "weekly" here)
+datasets:
+  - key: nino12
+    label: NINO1+2
+    long_label: NINO1+2 SST (0 to 10°S, 90 to 80°W)
+    group: sst
+    quantity: absolute
+    cadence: monthly
+    source: {type: noaa_sst, column: SST0}
+  - key: nino3
+    label: NINO3 anomaly
+    long_label: NINO3 SST anomaly (5°N to 5°S, 150 to 90°W)
+    group: sst
+    quantity: anomaly
+    cadence: monthly
+    source: {type: noaa_sst, column: ANOM3}
+  - key: nino34
+    label: NINO3.4 anomaly
+    long_label: NINO3.4 SST anomaly (5°N to 5°S, 170 to 120°W)
+    group: sst
+    quantity: anomaly
+    cadence: monthly
+    source: {type: noaa_sst, column: ANOM34}
+  - key: nino4
+    label: NINO4 anomaly
+    long_label: NINO4 SST anomaly (5°N to 5°S, 160°E to 150°W)
+    group: sst
+    quantity: anomaly
+    cadence: monthly
+    source: {type: noaa_sst, column: ANOM4}
+  - key: callao
+    label: Callao
+    long_label: Callao, Peru (12.1°S, 77.2°W), UHSLC station 093
+    group: sea_level
+    quantity: record_mean
+    cadence: monthly
+    source:
+      type: uhslc
+      station: "093"
+      start_date: "1905-01-01"
+      rqd_url: "https://uhslc.soest.hawaii.edu/data/csv/rqds/pacific/hourly/h093a.csv"
+  - key: la_libertad
+    label: La Libertad
+    long_label: La Libertad, Ecuador (2.2°S, 80.9°W), UHSLC station 091
+    group: sea_level
+    quantity: record_mean
+    cadence: monthly
+    source:
+      type: uhslc
+      station: "091"
+      start_date: "1949-01-01"
+      rqd_url: "https://uhslc.soest.hawaii.edu/data/csv/rqds/pacific/hourly/h091a.csv"
+  - key: honolulu
+    label: Honolulu
+    long_label: Honolulu, Hawaii (21.3°N, 157.9°W), UHSLC station 057
+    group: sea_level
+    quantity: record_mean
+    cadence: monthly
+    source:
+      type: uhslc
+      station: "057"
+      start_date: "1905-01-01"
+      rqd_url: "https://uhslc.soest.hawaii.edu/data/csv/rqds/pacific/hourly/h057a.csv"
+  - key: palau
+    label: Palau
+    long_label: Malakal, Palau (7.3°N, 134.5°E), UHSLC station 007
+    group: sea_level
+    quantity: record_mean
+    cadence: monthly
+    source:
+      type: uhslc
+      station: "007"
+      start_date: "1905-01-01"
+      rqd_url: "https://uhslc.soest.hawaii.edu/data/csv/rqds/pacific/hourly/h007a.csv"
+
+# El Niño events offered as highlight buttons (inclusive months).
+events:
+  - {label: "1982-83", start: "1982-04", end: "1983-09"}
+  - {label: "1997-98", start: "1997-03", end: "1998-08"}
+  - {label: "2015-16", start: "2015-03", end: "2016-06"}
+  - {label: "2023-24", start: "2023-03", end: "2024-05"}
+
+site:
+  title: El Niño phase space
+  repo_url: https://github.com/uferreira/el_nino_202610
+  base_url: https://uferreira.github.io/el_nino_202610/

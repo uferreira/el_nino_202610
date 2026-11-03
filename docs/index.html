@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase diagrams · El Niño phase space</title>
+<meta name="description" content="Each record drawn against its own rate of change. Right of centre is warm or high, above zero is rising; El Niño events run as wide clockwise loops.">
+<script>
+  /* Apply a saved theme before first paint, so the page never flashes. */
+  try { var t = localStorage.getItem('enso.theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap site-header__inner">
+    <a class="site-name" href="index.html">El Niño phase space</a>
+    <nav class="site-nav" aria-label="Pages">
+      <a href="index.html" aria-current="page">Phase diagrams</a>
+    </nav>
+    <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to dark theme">
+      <svg class="icon-moon" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M15.5 12.6A6.5 6.5 0 0 1 7.4 4.5a6.5 6.5 0 1 0 8.1 8.1z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <svg class="icon-sun" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M4 16l1.4-1.4M14.6 5.4 16 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap">
+  <header class="page-head">
+    <h1>Phase diagrams</h1>
+    <p class="lede">Each record drawn against its own rate of change. Right of centre is warm or high, above zero is rising; El Niño events run as wide clockwise loops.</p>
+  </header>
+<section class="panel" id="phase" data-kind="phase-linked" data-src="data/phase/{ds}.json" aria-busy="true">
+  <div class="controls">
+    <label class="field">
+      <span class="field__label">Dataset</span>
+      <select name="ds" data-control>
+        <optgroup label="Sea surface temperature">
+          <option value="nino12" selected>NINO1+2</option>
+          <option value="nino3">NINO3 anomaly</option>
+          <option value="nino34">NINO3.4 anomaly</option>
+          <option value="nino4">NINO4 anomaly</option>
+        </optgroup>
+        <optgroup label="Sea level">
+          <option value="callao">Callao</option>
+          <option value="la_libertad">La Libertad</option>
+          <option value="honolulu">Honolulu</option>
+          <option value="palau">Palau</option>
+        </optgroup>
+      </select>
+    </label>
+    <div class="field" role="group" aria-labelledby="phase-events-label">
+      <span class="field__label" id="phase-events-label">Highlight an El Niño</span>
+      <div class="segmented">
+        <button type="button" data-event="1982-83" aria-pressed="false">1982-83</button>
+        <button type="button" data-event="1997-98" aria-pressed="false">1997-98</button>
+        <button type="button" data-event="2015-16" aria-pressed="false">2015-16</button>
+        <button type="button" data-event="2023-24" aria-pressed="false">2023-24</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="linked">
+    <div class="linked__loop">
+      <div class="plot plot--square" data-plot="phase" role="img" aria-label="Phase diagram"></div>
+    </div>
+
+    <div class="linked__side">
+      <div class="now" aria-live="polite">
+        <div class="now__head">
+          <span class="now__month" data-field="now.month"></span>
+          <span class="now__state" data-field="now.state"></span>
+        </div>
+        <dl class="now__values">
+          <div><dt data-field="now.value_label"></dt><dd data-field="now.value"></dd></div>
+          <div><dt>Rate</dt><dd data-field="now.rate"></dd></div>
+        </dl>
+        <p class="now__note">Filtered values. Observed monthly mean <span data-field="now.observed"></span>.
+          Data through <span data-field="now.through"></span>, updated <span data-field="now.updated"></span>.</p>
+      </div>
+
+      <ul class="key" aria-label="Legend">
+        <li><span class="swatch swatch--history"></span>Whole record <span class="key__detail" data-field="window"></span></li>
+        <li><span class="swatch swatch--recent"></span>Latest 12 months</li>
+        <li class="key__highlight" hidden><span class="swatch swatch--highlight"></span><span data-field="highlight.range"></span>
+          <button type="button" class="link-button" data-action="clear">Clear</button></li>
+      </ul>
+
+      <div class="plot-box">
+        <div class="plot plot--fill" data-plot="time" role="img" aria-label="Time series of the value and its rate of change"></div>
+      </div>
+      <p class="hint">Drag across the time series to highlight a period; double-click or Clear removes it.</p>
+    </div>
+  </div>
+
+  <p class="panel__error" data-error hidden>Could not load this dataset.</p>
+</section>
+
+<details class="notes">
+  <summary>How to read this page</summary>
+  
+<p>Each point of the loop is one moment of the record: its horizontal
+position is the filtered value, its vertical position how fast that value
+is changing. A warm event therefore runs clockwise: above the zero line
+moving right while it builds, across the zero line at its peak, then below
+the zero line moving left as it decays.</p>
+<p>The record is low-pass filtered (Fourier, full periods shorter than about
+18 to 20 months removed) so the loop shows interannual ENSO variability, not
+month-to-month noise. NINO1+2 keeps its seasonal cycle, so it also traces a
+small loop every year. The last months of any filtered record can still move
+a little as new observations arrive.</p>
+<p>Drag across the time series to highlight that stretch of the loop;
+double-click to clear. Hover either view to find the same month in the other.</p>
+
+</details>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p>Data: <a href="https://www.cpc.ncep.noaa.gov/data/indices/">NOAA CPC</a> SST indices (monthly), <a href="https://uhslc.soest.hawaii.edu/">UHSLC</a> tide gauges (hourly, averaged to months). Downloaded 2026-11-03.</p>
+    <p>Fourier low-pass, HN1 = 10, HN2 = 9 (full periods under about 18 to 20 months removed). All numbers are computed in Python; this page only draws them. <a href="https://github.com/uferreira/el_nino_202610">Source</a>.</p>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-basic-dist-min@4.1.1/plotly-basic.min.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

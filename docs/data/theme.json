@@ -1,0 +1,250 @@
+{
+ "light": {
+  "template": {
+   "layout": {
+    "font": {
+     "family": "\"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", sans-serif",
+     "size": 12,
+     "color": "#14171c"
+    },
+    "paper_bgcolor": "rgba(0,0,0,0)",
+    "plot_bgcolor": "rgba(0,0,0,0)",
+    "xaxis": {
+     "showgrid": false,
+     "zeroline": false,
+     "showline": true,
+     "linecolor": "#e1e4e8",
+     "linewidth": 1,
+     "ticks": "outside",
+     "ticklen": 4,
+     "tickcolor": "#e1e4e8",
+     "tickfont": {
+      "family": "\"IBM Plex Mono\", ui-monospace, \"SFMono-Regular\", Menlo, monospace",
+      "size": 11,
+      "color": "#6b7481"
+     },
+     "title": {
+      "font": {
+       "family": "\"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", sans-serif",
+       "size": 12,
+       "color": "#4a525d"
+      }
+     },
+     "showspikes": false
+    },
+    "yaxis": {
+     "showgrid": false,
+     "zeroline": false,
+     "showline": true,
+     "linecolor": "#e1e4e8",
+     "linewidth": 1,
+     "ticks": "outside",
+     "ticklen": 4,
+     "tickcolor": "#e1e4e8",
+     "tickfont": {
+      "family": "\"IBM Plex Mono\", ui-monospace, \"SFMono-Regular\", Menlo, monospace",
+      "size": 11,
+      "color": "#6b7481"
+     },
+     "title": {
+      "font": {
+       "family": "\"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", sans-serif",
+       "size": 12,
+       "color": "#4a525d"
+      }
+     },
+     "showspikes": false
+    },
+    "hoverlabel": {
+     "bgcolor": "#ffffff",
+     "bordercolor": "#e1e4e8",
+     "font": {
+      "family": "\"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", sans-serif",
+      "size": 12,
+      "color": "#14171c"
+     }
+    },
+    "annotationdefaults": {
+     "font": {
+      "family": "\"IBM Plex Mono\", ui-monospace, \"SFMono-Regular\", Menlo, monospace",
+      "size": 11,
+      "color": "#4a525d"
+     }
+    },
+    "shapedefaults": {
+     "line": {
+      "color": "#d3d7dc",
+      "width": 1
+     }
+    },
+    "selectiondefaults": {
+     "line": {
+      "color": "#1d63c9",
+      "width": 1
+     }
+    },
+    "newselection": {
+     "line": {
+      "color": "#1d63c9",
+      "width": 1,
+      "dash": "dot"
+     }
+    },
+    "activeselection": {
+     "fillcolor": "rgba(29, 99, 201, 0.10)",
+     "opacity": 1
+    }
+   }
+  },
+  "roles": {
+   "history": {
+    "line": "#b4bbc4"
+   },
+   "series": {
+    "line": "#6b7481"
+   },
+   "highlight": {
+    "line": "#1d63c9"
+   },
+   "recent": {
+    "line": "#d1332b",
+    "marker": "#d1332b"
+   },
+   "now": {
+    "marker": "#d1332b",
+    "ring": "#ffffff"
+   },
+   "cursor": {
+    "marker": "#ffffff",
+    "ring": "#14171c"
+   },
+   "hover": {}
+  },
+  "band": "rgba(29, 99, 201, 0.10)",
+  "zero": "#d3d7dc"
+ },
+ "dark": {
+  "template": {
+   "layout": {
+    "font": {
+     "family": "\"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", sans-serif",
+     "size": 12,
+     "color": "#e7e9ec"
+    },
+    "paper_bgcolor": "rgba(0,0,0,0)",
+    "plot_bgcolor": "rgba(0,0,0,0)",
+    "xaxis": {
+     "showgrid": false,
+     "zeroline": false,
+     "showline": true,
+     "linecolor": "#2b3038",
+     "linewidth": 1,
+     "ticks": "outside",
+     "ticklen": 4,
+     "tickcolor": "#2b3038",
+     "tickfont": {
+      "family": "\"IBM Plex Mono\", ui-monospace, \"SFMono-Regular\", Menlo, monospace",
+      "size": 11,
+      "color": "#8a929d"
+     },
+     "title": {
+      "font": {
+       "family": "\"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", sans-serif",
+       "size": 12,
+       "color": "#aab2bc"
+      }
+     },
+     "showspikes": false
+    },
+    "yaxis": {
+     "showgrid": false,
+     "zeroline": false,
+     "showline": true,
+     "linecolor": "#2b3038",
+     "linewidth": 1,
+     "ticks": "outside",
+     "ticklen": 4,
+     "tickcolor": "#2b3038",
+     "tickfont": {
+      "family": "\"IBM Plex Mono\", ui-monospace, \"SFMono-Regular\", Menlo, monospace",
+      "size": 11,
+      "color": "#8a929d"
+     },
+     "title": {
+      "font": {
+       "family": "\"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", sans-serif",
+       "size": 12,
+       "color": "#aab2bc"
+      }
+     },
+     "showspikes": false
+    },
+    "hoverlabel": {
+     "bgcolor": "#121418",
+     "bordercolor": "#2b3038",
+     "font": {
+      "family": "\"IBM Plex Sans\", system-ui, -apple-system, \"Segoe UI\", sans-serif",
+      "size": 12,
+      "color": "#e7e9ec"
+     }
+    },
+    "annotationdefaults": {
+     "font": {
+      "family": "\"IBM Plex Mono\", ui-monospace, \"SFMono-Regular\", Menlo, monospace",
+      "size": 11,
+      "color": "#aab2bc"
+     }
+    },
+    "shapedefaults": {
+     "line": {
+      "color": "#353b44",
+      "width": 1
+     }
+    },
+    "selectiondefaults": {
+     "line": {
+      "color": "#4a8fe8",
+      "width": 1
+     }
+    },
+    "newselection": {
+     "line": {
+      "color": "#4a8fe8",
+      "width": 1,
+      "dash": "dot"
+     }
+    },
+    "activeselection": {
+     "fillcolor": "rgba(74, 143, 232, 0.16)",
+     "opacity": 1
+    }
+   }
+  },
+  "roles": {
+   "history": {
+    "line": "#4b525c"
+   },
+   "series": {
+    "line": "#8a929d"
+   },
+   "highlight": {
+    "line": "#4a8fe8"
+   },
+   "recent": {
+    "line": "#e8524a",
+    "marker": "#e8524a"
+   },
+   "now": {
+    "marker": "#e8524a",
+    "ring": "#121418"
+   },
+   "cursor": {
+    "marker": "#121418",
+    "ring": "#e7e9ec"
+   },
+   "hover": {}
+  },
+  "band": "rgba(74, 143, 232, 0.16)",
+  "zero": "#353b44"
+ }
+}

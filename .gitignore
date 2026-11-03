@@ -1,0 +1,17 @@
+# Raw downloads (large; rebuilt by python -m enso.fetch)
+data/raw/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+venv/
+.venv/
+
+# Local screenshots
+screenshots/
+
+# OS / editor
+.DS_Store
+.claude/

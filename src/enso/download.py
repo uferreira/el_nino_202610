@@ -1,0 +1,979 @@
+"""
+enso.download
+=============
+Ported from el_nino/src/el_nino/download.py (behaviour unchanged).
+
+Data acquisition: SST from NOAA CPC and hourly sea level from UHSLC ERDDAP.
+
+All public functions return plain dicts of NumPy arrays so callers have no
+dependency on pandas beyond this module boundary.
+"""
+
+from __future__ import annotations
+
+import shutil
+import time
+import warnings
+from datetime import datetime, timezone
+from io import StringIO
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import requests
+import yaml
+
+# ---------------------------------------------------------------------------
+# Module-level constants
+# ---------------------------------------------------------------------------
+
+NOAA_SST_URL = "https://www.cpc.ncep.noaa.gov/data/indices/sstoi.indices"
+
+# UHSLC ERDDAP Fast Delivery endpoint: returns CSV with two header rows.
+ERDDAP_BASE = (
+    "https://uhslc.soest.hawaii.edu/erddap/tabledap/global_hourly_fast.csv"
+)
+
+# UHSLC encodes missing observations as -32767 (short int sentinel, not NaN).
+FILL_VALUE = -32767
+# Every monthly mean, the current month included, must represent at least half
+# of its hourly slots. A shorter mean as the last point would bias the endpoint
+# trend correction in passa_baixa, and would be dropped again on the next run.
+MIN_HISTORICAL_MONTH_COVERAGE = 0.50
+
+# (connect, read) seconds. The read timeout is generous because ERDDAP can
+# pause while it assembles a century of hourly data; the connect timeout is
+# short so an unreachable host fails fast instead of eating the CI budget.
+REQUEST_TIMEOUT = (15, 60)
+
+# Retry policy for transient network failures (timeouts, dropped connections).
+# UHSLC's ERDDAP/RQD servers intermittently stall; a couple of backed-off
+# retries turns a hard failure into a recoverable blip. Non-transient errors
+# (e.g. HTTP 404) are never retried.
+RETRY_BACKOFFS = (2, 5, 10)   # seconds to wait before attempts 2, 3, 4
+
+# RAPID near-real-time URLs compared by their last valid timestamp.
+# The station RAPID stream (StationZero datum, GMT) carries roughly the last
+# 60 days of observations; in the FD/RAPID overlap it agrees with ERDDAP FD to
+# within 1 mm, so it extends the FD record without a datum offset.
+# (The FD hourly CSV, data/csv/fast/hourly/h{id}.csv, used to be listed here
+# too. It is the same Fast Delivery data ERDDAP already returned, 8-18 MB per
+# station, and it never ends later than ERDDAP, so it is not fetched again.)
+_RAPID_URL_TEMPLATES = [
+    "https://uhslc.soest.hawaii.edu/stations/RAPID/{id}_mm_StationZero_GMT.csv",
+]
+
+# Column order shared by both the local historical file and the NOAA online file.
+_SST_COLS = [
+    "YR", "MON",
+    "NINO12", "ANOM12",
+    "NINO3",  "ANOM3",
+    "NINO4",  "ANOM4",
+    "NINO34", "ANOM34",
+]
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _fetch(url: str, label: str) -> requests.Response:
+    """
+    Perform a GET request and return the response.
+
+    Transient failures (connection timeouts and dropped connections) are
+    retried with exponential backoff per ``RETRY_BACKOFFS`` before giving up.
+    UHSLC's servers stall intermittently, so a couple of backed-off retries
+    turn an otherwise-fatal blip into a recoverable one. HTTP errors (e.g. a
+    404) are *not* retried (they will not fix themselves) and are raised
+    immediately.
+
+    Wraps network errors in a RuntimeError with a human-readable message
+    that includes the URL: useful when the failure is deep in a pipeline.
+    """
+    # One attempt per backoff plus the initial try (e.g. 2/5/10 → 4 attempts).
+    total_attempts = len(RETRY_BACKOFFS) + 1
+    for attempt in range(total_attempts):
+        try:
+            resp = requests.get(url, timeout=REQUEST_TIMEOUT)
+            resp.raise_for_status()
+            return resp
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            # The connection dropped part-way through the body: a truncated
+            # file, which a retry fixes just like a dropped connection.
+            requests.exceptions.ChunkedEncodingError,
+        ) as exc:
+            # Transient: retry with backoff unless this was the last attempt.
+            if attempt < len(RETRY_BACKOFFS):
+                wait = RETRY_BACKOFFS[attempt]
+                warnings.warn(
+                    f"Transient network error downloading {label} "
+                    f"(attempt {attempt + 1}/{total_attempts}): {exc}. "
+                    f"Retrying in {wait}s …",
+                    stacklevel=2,
+                )
+                time.sleep(wait)
+                continue
+            raise RuntimeError(
+                f"Network error downloading {label} after "
+                f"{total_attempts} attempts: {exc}\n"
+                f"URL: {url}"
+            ) from exc
+        except requests.exceptions.HTTPError as exc:
+            raise RuntimeError(
+                f"HTTP {exc.response.status_code} downloading {label}.\n"
+                f"URL: {url}"
+            ) from exc
+        except requests.exceptions.RequestException as exc:
+            raise RuntimeError(
+                f"Network error downloading {label}: {exc}"
+            ) from exc
+
+
+def _snap_to_hour(series: pd.Series) -> pd.Series:
+    """
+    Round timestamps that are within 5 minutes of a full clock hour.
+
+    UHSLC ERDDAP frequently delivers observations at 04:59:59 or 05:00:01
+    instead of exactly 05:00:00. Without this correction, two observations
+    from the same clock hour would survive into the monthly aggregation,
+    inflating or randomly biasing the monthly mean.
+
+    Timestamps more than 5 minutes from the nearest hour are left unchanged
+    to avoid silently re-labelling sub-hourly data.
+    """
+    mins = series.dt.minute
+    out  = series.copy()
+    # Snap xx:55 to xx:59 up to the next full hour.
+    out.loc[mins >= 55] = out.loc[mins >= 55].dt.ceil("h")
+    # Snap xx:00 to xx:05 down to the current full hour.
+    out.loc[mins <= 5]  = out.loc[mins <= 5].dt.floor("h")
+    return out
+
+
+def _clean_obs(series: pd.Series) -> pd.Series:
+    """
+    Coerce non-numeric strings to NaN and replace the UHSLC fill sentinel.
+
+    The UHSLC format uses −32767 (the minimum signed 16-bit integer) as
+    its missing-data code. Replacing it with NaN before aggregation ensures
+    that missing hours do not drag down monthly means.
+    """
+    return pd.to_numeric(series, errors="coerce").replace(FILL_VALUE, np.nan)
+
+
+def _find_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    """Return the first column present in df that matches any candidate name."""
+    for cand in candidates:
+        if cand in df.columns:
+            return cand
+    return None
+
+
+def _save_raw(path: str, content: str) -> None:
+    """Write ``content`` to ``path``; silently warns on failure."""
+    try:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+    except Exception as exc:
+        warnings.warn(f"Could not save {path}: {exc}")
+
+
+def _parse_rapid_csv(text: str) -> pd.DataFrame | None:
+    """
+    Try multiple CSV parse strategies and return a normalised DataFrame.
+
+    Handles three source formats:
+    1. ERDDAP format: column names row + units row (skiprows=[1]).
+    2. Simple CSV with a single time column and a sea level column.
+    3. Year/Month/Day/Hour component columns (construct datetime).
+
+    Returns a DataFrame with columns ``time_utc`` and ``sl_mm``, or None
+    if no strategy produces usable data.
+    """
+    # ── Strategy 1: ERDDAP two-row header (column names + units) ─────────────
+    # Only an ERDDAP file has a units row; in any other CSV the second line
+    # is the first observation and must not be thrown away.
+    lines = text.splitlines()
+    has_units_row = len(lines) > 1 and not lines[1].lstrip()[:1].isdigit()
+    try:
+        df = pd.read_csv(StringIO(text), skiprows=[1] if has_units_row else None)
+        df.columns = [c.split("(")[0].strip().lower() for c in df.columns]
+        t_col  = _find_col(df, ["time", "time_utc"])
+        sl_col = _find_col(df, ["sea_level", "obs", "observation", "sl_mm", "sl"])
+        if t_col and sl_col:
+            df["time_utc"] = pd.to_datetime(df[t_col], utc=True, errors="coerce")
+            df["sl_mm"]    = _clean_obs(df[sl_col])
+            out = df[["time_utc", "sl_mm"]].dropna()
+            if not out.empty:
+                return out.reset_index(drop=True)
+    except Exception:
+        pass
+
+    # ── Strategy 2: Plain CSV with a single datetime/time column ─────────────
+    try:
+        df = pd.read_csv(StringIO(text))
+        df.columns = [c.split("(")[0].strip().lower() for c in df.columns]
+        t_col  = _find_col(df, ["time", "time_utc", "datetime", "date_time",
+                                 "date", "timestamp"])
+        sl_col = _find_col(df, ["sea_level", "obs", "observation", "sl_mm",
+                                 "sl", "water_level", "level"])
+        if t_col and sl_col:
+            df["time_utc"] = pd.to_datetime(df[t_col], utc=True, errors="coerce")
+            df["sl_mm"]    = _clean_obs(df[sl_col])
+            out = df[["time_utc", "sl_mm"]].dropna()
+            if not out.empty:
+                return out.reset_index(drop=True)
+    except Exception:
+        pass
+
+    # ── Strategy 3: Year/Month/Day/Hour component columns ────────────────────
+    try:
+        df = pd.read_csv(StringIO(text))
+        df.columns = [c.strip().lower() for c in df.columns]
+        yr_col = _find_col(df, ["year", "yr"])
+        mo_col = _find_col(df, ["month", "mon"])
+        dy_col = _find_col(df, ["day"])
+        hr_col = _find_col(df, ["hour", "hr"])
+        sl_col = _find_col(df, ["sea_level", "obs", "observation", "sl_mm",
+                                 "sl", "water_level"])
+        if yr_col and mo_col and dy_col and hr_col and sl_col:
+            df["time_utc"] = pd.to_datetime(
+                {
+                    "year":  pd.to_numeric(df[yr_col],  errors="coerce"),
+                    "month": pd.to_numeric(df[mo_col], errors="coerce"),
+                    "day":   pd.to_numeric(df[dy_col],   errors="coerce"),
+                    "hour":  pd.to_numeric(df[hr_col],  errors="coerce"),
+                },
+                utc=True,
+                errors="coerce",
+            )
+            df["sl_mm"] = _clean_obs(df[sl_col])
+            out = df[["time_utc", "sl_mm"]].dropna()
+            if not out.empty:
+                return out.reset_index(drop=True)
+    except Exception:
+        pass
+
+    return None
+
+
+def _load_rapid(station_id: str) -> pd.DataFrame:
+    """
+    Attempt to download near-real-time sea level from UHSLC RAPID sources.
+
+    Tries every URL and returns the usable candidate with the latest final
+    timestamp. All failures are isolated so that a RAPID outage never aborts
+    the main pipeline; the caller checks whether the returned DataFrame is
+    empty.
+
+    Parameters
+    ----------
+    station_id : str
+        Zero-padded UHSLC station ID (e.g. "093").
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: ``time_utc`` (UTC-aware datetime), ``sl_mm`` (float).
+        Empty DataFrame if all URLs fail.
+    """
+    _empty = pd.DataFrame(columns=["time_utc", "sl_mm"])
+    best = _empty
+    best_text: str | None = None
+    best_url: str | None = None
+
+    for template in _RAPID_URL_TEMPLATES:
+        url = template.format(id=station_id)
+        try:
+            # Same retry policy as FD: while FD lags, RAPID is the only source
+            # of the newest months, so one stalled request must not drop them.
+            try:
+                resp = _fetch(url, f"UHSLC RAPID station {station_id}")
+            except RuntimeError as exc:
+                print(f"  RAPID: {exc}".splitlines()[0])
+                continue
+            if not resp.text.strip():
+                continue
+
+            df = _parse_rapid_csv(resp.text)
+            if df is None or df.empty:
+                continue
+
+            # Apply the same ±5-minute snap used for FD data.
+            df["time_utc"] = _snap_to_hour(df["time_utc"])
+            df = (
+                df.dropna(subset=["sl_mm"])
+                  .sort_values("time_utc")
+                  .drop_duplicates(subset=["time_utc"], keep="last")
+                  .reset_index(drop=True)
+            )
+            if df.empty:
+                continue
+
+            if best.empty or df["time_utc"].max() > best["time_utc"].max():
+                best = df
+                best_text = resp.text
+                best_url = url
+
+        except Exception:
+            continue
+
+    if best.empty:
+        print("  RAPID: all URLs failed, using FD only")
+        return _empty
+
+    _save_raw(f"data/raw/rapid_{station_id}_raw.csv", best_text or "")
+    print(
+        f"  RAPID: {len(best):,} records from {best_url}  "
+        f"({best['time_utc'].iloc[0]} to {best['time_utc'].iloc[-1]})"
+    )
+    return best
+
+
+def _merge_fd_rapid(
+    df_fd: pd.DataFrame,
+    df_rapid: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Combine Fast Delivery and RAPID DataFrames, RAPID taking priority.
+
+    When the two sources overlap in time (same ``time_utc``), the RAPID
+    observation is kept and the FD observation is discarded.  This is done
+    by assigning a numeric priority (FD=1, RAPID=2), sorting by
+    (time_utc, priority), then keeping the last entry per timestamp.
+
+    Parameters
+    ----------
+    df_fd    : pd.DataFrame: columns time_utc, sl_mm  (Fast Delivery)
+    df_rapid : pd.DataFrame: columns time_utc, sl_mm  (RAPID)
+
+    Returns
+    -------
+    pd.DataFrame
+        Merged and deduplicated DataFrame with columns time_utc, sl_mm,
+        sorted by time_utc ascending.
+    """
+    if df_rapid.empty:
+        return df_fd.reset_index(drop=True)
+    if df_fd.empty:
+        return df_rapid.reset_index(drop=True)
+
+    fd_p    = df_fd.copy();    fd_p["_pri"]    = 1
+    rapid_p = df_rapid.copy(); rapid_p["_pri"] = 2
+
+    merged = (
+        pd.concat([fd_p, rapid_p], ignore_index=True)
+          .sort_values(["time_utc", "_pri"])
+          .drop_duplicates(subset=["time_utc"], keep="last")
+          .drop(columns=["_pri"])
+          .sort_values("time_utc")
+          .reset_index(drop=True)
+    )
+    return merged[["time_utc", "sl_mm"]]
+
+
+def _parse_sst_lines(lines: list[str], ano_inicio: int) -> pd.DataFrame:
+    """
+    Parse lines from a NOAA SST index file into a DataFrame.
+
+    Both the local historical file and the NOAA online file share the
+    same whitespace-delimited format with one header line followed by
+    data lines of exactly 10 fields:
+
+        YR MON NINO12 ANOM12 NINO3 ANOM3 NINO4 ANOM4 NINO34 ANOM34
+
+    Lines with fewer than 10 fields or a non-numeric year are silently
+    skipped rather than raising an exception, matching the Fortran
+    program's behaviour of reading until EOF without explicit validation.
+
+    Parameters
+    ----------
+    lines : list[str]
+        Raw text lines (including the header at index 0).
+    ano_inicio : int
+        Skip data lines whose year is before this value.
+    """
+    rows = []
+    for i, line in enumerate(lines):
+        # Line 0 is always the column header in both file variants.
+        if i == 0:
+            continue
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) < 10:
+            continue
+        try:
+            yr  = int(parts[0])
+            mon = int(parts[1])
+        except ValueError:
+            # Non-numeric year/month signals end of data or a comment line.
+            continue
+        if yr < ano_inicio:
+            continue
+        try:
+            vals = [float(v) for v in parts[2:10]]
+        except ValueError:
+            continue
+        rows.append([yr, mon] + vals)
+    return pd.DataFrame(rows, columns=_SST_COLS)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def _load_sst_uncached(
+    local_file: str = "data/raw/sst1950_1981.txt",
+    ano_inicio: int = 1975,
+) -> dict:
+    """
+    Load monthly NINO1+2 SST by combining a local historical file with a
+    live download from NOAA CPC.
+
+    Data sources
+    ------------
+    Local file (1950 to 1981)
+        NOAA legacy format: one header line followed by data lines with
+        10 whitespace-delimited columns in this order:
+
+            YR MON NINO12 ANOM12 NINO3 ANOM3 NINO4 ANOM4 NINO34 ANOM34
+
+        Only the NINO12 column (index 2) is used. The local file provides
+        the pre-1982 historical record not available from the NOAA online
+        endpoint.
+
+    NOAA CPC online (1982 to present)
+        Identical 10-column format, downloaded from:
+
+            https://www.cpc.ncep.noaa.gov/data/indices/sstoi.indices
+
+        The file is updated monthly; running this function always fetches
+        the most recently published data.
+
+    The two sources are concatenated and sorted by (YR, MON). Only records
+    with year >= ano_inicio are taken from the local file, and only records
+    with year >= 1982 are taken from the online file. This eliminates the
+    overlap period and avoids potential duplicates.
+
+    Parameters
+    ----------
+    local_file : str
+        Path to the local SST file covering 1950 to 1981. Defaults to the
+        project-standard location under data/raw/.
+    ano_inicio : int
+        First year to include from the local file. Defaults to 1975 to
+        match the start date of the reference Fortran program.
+
+    Returns
+    -------
+    dict with keys:
+        IYR  : numpy.ndarray, dtype int32  : calendar years
+        MES  : numpy.ndarray, dtype int32  : months (1 = Jan … 12 = Dec)
+        SST0 : numpy.ndarray, dtype float64: NINO1+2 SST in °C
+
+    Raises
+    ------
+    FileNotFoundError
+        If local_file does not exist.
+    RuntimeError
+        If the NOAA download fails (network error, HTTP error, timeout).
+    """
+    # Read the local historical file (ano_inicio to 1981).
+    # Both the local and online files share the same 10-column format, so
+    # we reuse _parse_sst_lines for both.
+    with open(local_file, "r") as fh:
+        local_lines = fh.readlines()
+    # File 2: preserve the historical source file as-is.
+    _save_raw("data/raw/sst_historical_pre1982.txt", "".join(local_lines))
+    df_local = _parse_sst_lines(local_lines, ano_inicio=ano_inicio)
+    # Guard: keep only the pre-1982 record from the local file to avoid
+    # double-counting the overlap if the local file extends beyond 1981.
+    df_local = df_local[df_local["YR"] <= 1981]
+
+    # Download the live NOAA record (1982 to present).
+    print(f"  Downloading SST from NOAA: {NOAA_SST_URL}")
+    resp = _fetch(NOAA_SST_URL, "NOAA SST indices (sstoi.indices)")
+    # File 1: save the exact NOAA response text.
+    _save_raw("data/raw/noaa_sstoi_raw.txt", resp.text)
+    df_noaa = _parse_sst_lines(resp.text.splitlines(), ano_inicio=1982)
+
+    # Merge, sort, and enforce correct dtypes.
+    df = (
+        pd.concat([df_local, df_noaa], ignore_index=True)
+          .sort_values(["YR", "MON"])
+          .reset_index(drop=True)
+    )
+    df["YR"]  = df["YR"].astype(np.int32)
+    df["MON"] = df["MON"].astype(np.int32)
+
+    print(
+        f"  SST: {len(df)} months  "
+        f"({df['YR'].iloc[0]}/{df['MON'].iloc[0]:02d} to "
+        f"{df['YR'].iloc[-1]}/{df['MON'].iloc[-1]:02d})"
+    )
+
+    # File 3: combined SST series (NINO1+2 only, legacy format).
+    _ym = datetime.now(timezone.utc).strftime("%Y-%m")
+    _sst_lines = [
+        f"# SST combined series (NINO1+2) generated {_ym}\n",
+        "year  month  sst_degC\n",
+    ]
+    for _r in df.itertuples(index=False):
+        _sst_lines.append(f"{_r.YR:4d}  {_r.MON:5d}  {_r.NINO12:.4f}\n")
+    _save_raw(f"data/raw/sst_combined_{_ym}.txt", "".join(_sst_lines))
+
+    # File 3b: all four index columns for downstream use.
+    _idx_lines = [
+        f"# SST combined all indices generated {_ym}\n",
+        "year month nino12 anom12 nino3 anom3 nino4 anom4 nino34 anom34\n",
+    ]
+    for _r in df.itertuples(index=False):
+        _idx_lines.append(
+            f"{_r.YR:4d} {_r.MON:3d}"
+            f"  {_r.NINO12:.4f}  {_r.ANOM12:.4f}"
+            f"  {_r.NINO3:.4f}  {_r.ANOM3:.4f}"
+            f"  {_r.NINO4:.4f}  {_r.ANOM4:.4f}"
+            f"  {_r.NINO34:.4f}  {_r.ANOM34:.4f}\n"
+        )
+    _save_raw(f"data/raw/sst_combined_indices_{_ym}.txt", "".join(_idx_lines))
+
+    return {
+        "IYR":   df["YR"].to_numpy(dtype=np.int32),
+        "MES":   df["MON"].to_numpy(dtype=np.int32),
+        "SST0":  df["NINO12"].to_numpy(dtype=np.float64),
+        "ANOM12": df["ANOM12"].to_numpy(dtype=np.float64),
+        "SST3":  df["NINO3"].to_numpy(dtype=np.float64),
+        "ANOM3": df["ANOM3"].to_numpy(dtype=np.float64),
+        "SST4":  df["NINO4"].to_numpy(dtype=np.float64),
+        "ANOM4": df["ANOM4"].to_numpy(dtype=np.float64),
+        "SST34": df["NINO34"].to_numpy(dtype=np.float64),
+        "ANOM34": df["ANOM34"].to_numpy(dtype=np.float64),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Cached SST access
+# ---------------------------------------------------------------------------
+
+# A full site update runs four SST pipelines (NINO1+2, NINO3, NINO4, NINO3.4)
+# and every one of them needs the same combined record. Downloading
+# sstoi.indices once per index fetches identical bytes four times and
+# multiplies the chance that a transient CPC outage aborts a run halfway
+# through. Cache the parsed record per (local_file, ano_inicio) for the
+# lifetime of the process instead.
+_SST_CACHE: dict[tuple[str, int], dict] = {}
+
+
+def clear_sst_cache() -> None:
+    """Discard the cached SST record so the next load_sst downloads again."""
+    _SST_CACHE.clear()
+
+
+def load_sst(
+    local_file: str = "data/raw/sst1950_1981.txt",
+    ano_inicio: int = 1975,
+    *,
+    use_cache: bool = True,
+) -> dict:
+    """
+    Load the combined monthly SST record, reusing an in-process cache.
+
+    Thin wrapper around :func:`_load_sst_uncached`; see that function for the
+    data sources, the file format, and the meaning of every returned key. The
+    first call for a given ``(local_file, ano_inicio)`` downloads from NOAA and
+    writes the raw and combined input files exactly as before. Later calls in
+    the same process reuse that record and skip the network entirely.
+
+    Each caller receives its own array copies, so in-place work by one index
+    pipeline cannot corrupt the record handed to the next.
+
+    Parameters
+    ----------
+    local_file, ano_inicio
+        As in :func:`_load_sst_uncached`.
+    use_cache : bool
+        Set False to force a fresh download; the new record replaces the
+        cached one.
+
+    Returns
+    -------
+    dict
+        The same keys as :func:`_load_sst_uncached`, with copied arrays.
+    """
+    key = (str(local_file), int(ano_inicio))
+    if use_cache and key in _SST_CACHE:
+        cached = _SST_CACHE[key]
+        print(
+            "  SST: reusing the record downloaded earlier in this run "
+            f"({len(cached['MES'])} months)"
+        )
+        return {name: arr.copy() for name, arr in cached.items()}
+
+    record = _load_sst_uncached(local_file=local_file, ano_inicio=ano_inicio)
+    _SST_CACHE[key] = {name: arr.copy() for name, arr in record.items()}
+    return record
+
+
+def _aggregate_monthly_sea_level(
+    observations: pd.DataFrame,
+) -> tuple[pd.DataFrame, dict]:
+    """Create a calendar-complete, coverage-controlled monthly SSH series.
+
+    Fourier modes assume equally spaced samples. Dropping a missing month
+    silently shortens the time axis and changes every subsequent frequency
+    and date. This helper therefore keeps the true monthly calendar, rejects
+    unrepresentative monthly means, and reconstructs internal gaps.
+
+    Every month requires at least 50% of its possible hourly values. The
+    current UTC month follows the same rule and, when it passes, is labelled
+    preliminary. Leading/trailing gaps are trimmed, never extrapolated.
+    Internal gaps are filled by linearly interpolating anomalies about the
+    observed monthly climatology; direct linear interpolation is used only
+    where a calendar month has no climatology estimate.
+    """
+    required = {"time_utc", "sl_mm"}
+    if not required.issubset(observations.columns):
+        raise ValueError(f"observations must contain columns {sorted(required)}")
+
+    work = observations.loc[:, ["time_utc", "sl_mm"]].copy()
+    work["time_utc"] = pd.to_datetime(work["time_utc"], utc=True, errors="coerce")
+    work["sl_mm"] = pd.to_numeric(work["sl_mm"], errors="coerce")
+    work = (
+        work.dropna()
+        .sort_values("time_utc")
+        .drop_duplicates(subset=["time_utc"], keep="last")
+        .set_index("time_utc")
+    )
+    if work.empty:
+        raise RuntimeError("No valid hourly sea-level observations to aggregate.")
+
+    monthly_mean = work["sl_mm"].resample("MS").mean()
+    monthly_count = work["sl_mm"].resample("MS").count()
+    expected_hours = monthly_mean.index.days_in_month * 24
+    accepted = monthly_count >= expected_hours * MIN_HISTORICAL_MONTH_COVERAGE
+
+    now_month = pd.Period(datetime.now(timezone.utc).strftime("%Y-%m"), freq="M")
+    periods = monthly_mean.index.tz_localize(None).to_period("M")
+    current = periods == now_month
+    current_month_included = current & accepted.to_numpy()
+
+    observed = monthly_mean.where(accepted)
+    valid_positions = np.flatnonzero(observed.notna().to_numpy())
+    if len(valid_positions) < 2:
+        raise RuntimeError(
+            "Fewer than two monthly sea-level means passed coverage checks."
+        )
+
+    # Do not invent values before the first or after the last accepted month.
+    first, last = int(valid_positions[0]), int(valid_positions[-1])
+    observed = observed.iloc[first:last + 1]
+    monthly_count = monthly_count.iloc[first:last + 1]
+    current_month_included = current_month_included[first:last + 1]
+
+    gap_mask = observed.isna()
+    low_coverage = gap_mask & monthly_count.gt(0)
+
+    # Preserve the seasonal cycle across gaps by interpolating anomalies,
+    # rather than interpolating absolute sea level directly.
+    climatology = observed.groupby(observed.index.month).mean()
+    seasonal = pd.Series(
+        [climatology.get(month, np.nan) for month in observed.index.month],
+        index=observed.index,
+        dtype=float,
+    )
+    anomaly = observed - seasonal
+    filled = seasonal + anomaly.interpolate(method="linear", limit_area="inside")
+    filled = filled.fillna(
+        observed.interpolate(method="linear", limit_area="inside")
+    )
+    if filled.isna().any():
+        raise RuntimeError("Could not reconstruct all internal sea-level gaps.")
+
+    longest_gap = 0
+    run = 0
+    for missing in gap_mask.to_numpy():
+        run = run + 1 if missing else 0
+        longest_gap = max(longest_gap, run)
+
+    monthly = pd.DataFrame({
+        "time_utc": filled.index,
+        "sl_mm": filled.to_numpy(dtype=np.float64),
+        "gap_filled": gap_mask.to_numpy(dtype=bool),
+    })
+    monthly["YR"] = monthly["time_utc"].dt.year.astype(np.int32)
+    monthly["MON"] = monthly["time_utc"].dt.month.astype(np.int32)
+    quality = {
+        "interpolated_months": int(gap_mask.sum()),
+        "low_coverage_months": int(low_coverage.sum()),
+        "longest_gap_months": int(longest_gap),
+        "preliminary_month": bool(np.asarray(current_month_included).any()),
+    }
+    return monthly, quality
+
+
+def _load_sea_level_erddap(
+    station_id: str,
+    station_name: str,
+    start_date: str,
+) -> dict:
+    """Download + aggregate via UHSLC ERDDAP FD + RAPID. Raises RuntimeError on failure."""
+    end_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    url = (
+        f"{ERDDAP_BASE}"
+        f"?sea_level,time"
+        f"&time>={start_date}T00:00:00Z"
+        f"&time<={end_date}T23:59:59Z"
+        f"&uhslc_id={station_id}"
+    )
+    print(f"  Downloading {station_name} (UHSLC {station_id}) …")
+    resp = _fetch(url, f"UHSLC ERDDAP station {station_id} ({station_name})")
+    _save_raw(f"data/raw/uhslc_fd_{station_id}_raw.csv", resp.text)
+
+    df = pd.read_csv(StringIO(resp.text), skiprows=[1])
+    df.columns = [c.split("(")[0].strip().lower() for c in df.columns]
+
+    if "time" not in df.columns or "sea_level" not in df.columns:
+        raise RuntimeError(
+            f"Unexpected ERDDAP columns for station {station_id}: "
+            f"{list(df.columns)}"
+        )
+
+    df["time_utc"] = pd.to_datetime(df["time"], utc=True)
+    df["sl_mm"]    = _clean_obs(df["sea_level"])
+    df["time_utc"] = _snap_to_hour(df["time_utc"])
+    df = (
+        df[["time_utc", "sl_mm"]]
+          .dropna(subset=["sl_mm"])
+          .sort_values("time_utc")
+          .drop_duplicates(subset=["time_utc"], keep="last")
+          .reset_index(drop=True)
+    )
+
+    if df.empty:
+        raise RuntimeError(
+            f"No valid observations for station {station_id} ({station_name}). "
+            f"Check the station ID and date range."
+        )
+
+    print(
+        f"  {station_name}: {len(df):,} hourly obs  "
+        f"({df['time_utc'].iloc[0]} to {df['time_utc'].iloc[-1]})"
+    )
+
+    source = "FD"
+    df_rapid = _load_rapid(station_id)
+    if not df_rapid.empty:
+        fd_last    = df["time_utc"].max()
+        rapid_tail = df_rapid[df_rapid["time_utc"] > fd_last].copy()
+        if not rapid_tail.empty:
+            n_ext = len(rapid_tail)
+            df = _merge_fd_rapid(df, rapid_tail)
+            source = "FD+RAPID"
+            print(f"  Extended record with RAPID: {n_ext:,} additional hours")
+
+    # Latest month that UHSLC actually served an observation for, so callers
+    # can tell "the source has nothing newer" from "we dropped newer months".
+    served_through = df["time_utc"].max().strftime("%Y-%m")
+
+    monthly, quality = _aggregate_monthly_sea_level(df)
+
+    print(
+        f"  {station_name}: {len(monthly)} monthly means  "
+        f"({monthly['YR'].iloc[0]}/{monthly['MON'].iloc[0]:02d} to "
+        f"{monthly['YR'].iloc[-1]}/{monthly['MON'].iloc[-1]:02d})"
+    )
+    if quality["interpolated_months"]:
+        print(
+            f"  {station_name}: reconstructed "
+            f"{quality['interpolated_months']} internal missing/sparse months "
+            f"(longest gap {quality['longest_gap_months']} months)"
+        )
+
+    _ym = datetime.now(timezone.utc).strftime("%Y-%m")
+    _sl_lines = [
+        f"# SSH combined monthly means station {station_id} generated {_ym}\n",
+        "year  month  sea_level_mm  gap_filled\n",
+    ]
+    for _r in monthly.itertuples(index=False):
+        _sl_lines.append(
+            f"{_r.YR:4d}  {_r.MON:5d}  {_r.sl_mm:.2f}  "
+            f"{int(_r.gap_filled):10d}\n"
+        )
+    _save_raw(
+        f"data/raw/ssh_combined_{station_id}_{_ym}.txt",
+        "".join(_sl_lines),
+    )
+
+    return {
+        "IYR": monthly["YR"].to_numpy(dtype=np.int32),
+        "MES": monthly["MON"].to_numpy(dtype=np.int32),
+        "SL0": monthly["sl_mm"].to_numpy(dtype=np.float64),
+        "GAP": monthly["gap_filled"].to_numpy(dtype=bool),
+        "source": source,
+        "served_through": served_through,
+        **quality,
+    }
+
+
+def load_sea_level_rqd(url: str, station_name: str) -> dict:
+    """
+    Download UHSLC Research Quality Data (RQD) hourly CSV and aggregate to monthly means.
+
+    The RQD CSV is comma-separated with no header and five columns
+    (whitespace-separated lines are accepted too):
+        year,month,day,hour,sea_level_mm
+    Missing values are encoded as -32767 or -32768.
+
+    Parameters
+    ----------
+    url          : str: direct URL to the RQD hourly CSV file
+    station_name : str: human-readable station name (for progress messages)
+
+    Returns
+    -------
+    dict with keys IYR (int32), MES (int32), SL0 (float64)
+
+    Raises
+    ------
+    RuntimeError
+        If the download fails or produces no usable data.
+    """
+    print(f"  [{station_name}] Trying RQD fallback: {url}")
+    resp = _fetch(url, f"UHSLC RQD {station_name}")
+
+    # Derive station id from URL for saving raw file.
+    _sid = url.rstrip("/").split("/")[-1].split(".")[0].lstrip("h")
+    _save_raw(f"data/raw/rqd_{_sid}_raw.csv", resp.text)
+
+    # Parse: comma-separated, 5 columns, no header.
+    rows = []
+    for line in resp.text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.replace(",", " ").split()
+        if len(parts) < 5:
+            continue
+        try:
+            yr, mo, dy, hr = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+            sl = float(parts[4])
+        except ValueError:
+            continue
+        if sl in (-32767, -32768) or np.isnan(sl):
+            continue
+        rows.append((yr, mo, dy, hr, sl))
+
+    if not rows:
+        raise RuntimeError(f"RQD file for {station_name} contains no valid data.")
+
+    import pandas as pd
+    df = pd.DataFrame(rows, columns=["year", "month", "day", "hour", "sl_mm"])
+    df["time_utc"] = pd.to_datetime(
+        {"year": df["year"], "month": df["month"], "day": df["day"], "hour": df["hour"]},
+        utc=True, errors="coerce",
+    )
+    df = df.dropna(subset=["time_utc"])[["time_utc", "sl_mm"]]
+    monthly_mean, quality = _aggregate_monthly_sea_level(df)
+
+    if monthly_mean.empty:
+        raise RuntimeError(f"RQD data for {station_name}: no months passed 50% valid threshold.")
+
+    monthly_mean["YR"]  = monthly_mean["time_utc"].dt.year.astype(np.int32)
+    monthly_mean["MON"] = monthly_mean["time_utc"].dt.month.astype(np.int32)
+
+    print(
+        f"  {station_name} (RQD): {len(monthly_mean)} monthly means  "
+        f"({monthly_mean['YR'].iloc[0]}/{monthly_mean['MON'].iloc[0]:02d} to "
+        f"{monthly_mean['YR'].iloc[-1]}/{monthly_mean['MON'].iloc[-1]:02d})"
+    )
+    return {
+        "IYR": monthly_mean["YR"].to_numpy(dtype=np.int32),
+        "MES": monthly_mean["MON"].to_numpy(dtype=np.int32),
+        "SL0": monthly_mean["sl_mm"].to_numpy(dtype=np.float64),
+        "source": "RQD",
+        "served_through": df["time_utc"].max().strftime("%Y-%m"),
+        **quality,
+    }
+
+
+def load_sea_level(
+    station_id: str,
+    station_name: str,
+    start_date: str,
+    rqd_url: str | None = None,
+) -> dict:
+    """
+    Download hourly sea level from UHSLC ERDDAP, extend with RAPID
+    near-real-time data, and aggregate to monthly means.
+
+    Background
+    ----------
+    UHSLC (University of Hawaii Sea Level Center) is the primary archive
+    of quality-controlled, long-record tide gauge data used in sea level
+    research.  Their ERDDAP service allows programmatic access to subsets
+    of the archive via HTTP GET requests that return CSV.
+
+    The FD (Fast Delivery) product provides data within days to weeks of
+    collection, making it suitable for near-real-time ENSO monitoring.
+    RAPID sources extend the record to within hours of the present,
+    but without the QC applied to the FD archive; they are therefore
+    appended only after the last FD timestamp to preserve archive integrity.
+
+    Pipeline
+    --------
+    1. Download hourly observations via ERDDAP FD for the requested station
+       and date range.
+    2. Parse the ERDDAP two-row header (column names + units row skipped).
+    3. Snap ±5-minute timestamp offsets to the exact clock hour.
+    4. Replace the UHSLC fill sentinel −32767 with NaN.
+    5. Deduplicate on timestamp (keeping the last), drop NaN observations.
+    6. Attempt RAPID extension: try three near-real-time URLs in order;
+       append only observations strictly after the last FD timestamp.
+    7. Aggregate hourly tomonthly via resample("MS").mean().
+
+    Parameters
+    ----------
+    station_id : str
+        UHSLC numeric station identifier, zero-padded to 3 digits.
+    station_name : str
+        Human-readable station name used only in progress messages.
+    start_date : str
+        ISO 8601 date string for the start of the download window.
+
+    Returns
+    -------
+    dict with keys:
+        IYR : numpy.ndarray, dtype int32  : calendar years
+        MES : numpy.ndarray, dtype int32  : months (1 = Jan … 12 = Dec)
+        SL0 : numpy.ndarray, dtype float64: monthly mean sea level in mm
+
+    Raises
+    ------
+    RuntimeError
+        If the ERDDAP download fails or returns no usable data.
+    """
+    try:
+        return _load_sea_level_erddap(station_id, station_name, start_date)
+    except RuntimeError as erddap_exc:
+        if rqd_url is None:
+            raise
+        warnings.warn(
+            f"ERDDAP failed for {station_name} ({erddap_exc}); "
+            f"falling back to RQD.",
+            stacklevel=2,
+        )
+        try:
+            return load_sea_level_rqd(rqd_url, station_name)
+        except RuntimeError as rqd_exc:
+            raise RuntimeError(
+                f"Both ERDDAP and RQD failed for {station_name}.\n"
+                f"  ERDDAP: {erddap_exc}\n"
+                f"  RQD:    {rqd_exc}"
+            ) from rqd_exc
