@@ -2,24 +2,24 @@
  "source_type": "uhslc",
  "datasets": {
   "callao": {
-   "last_attempt": "2026-11-03",
+   "last_attempt": "2026-11-04",
    "last_result": "SAME",
-   "checked": "2026-11-03"
+   "checked": "2026-11-04"
   },
   "honolulu": {
-   "last_attempt": "2026-11-03",
+   "last_attempt": "2026-11-04",
    "last_result": "SAME",
-   "checked": "2026-11-03"
+   "checked": "2026-11-04"
   },
   "la_libertad": {
-   "last_attempt": "2026-11-03",
+   "last_attempt": "2026-11-04",
    "last_result": "SAME",
-   "checked": "2026-11-03"
+   "checked": "2026-11-04"
   },
   "palau": {
-   "last_attempt": "2026-11-03",
+   "last_attempt": "2026-11-04",
    "last_result": "SAME",
-   "checked": "2026-11-03"
+   "checked": "2026-11-04"
   }
  }
 }
