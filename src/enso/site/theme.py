@@ -39,6 +39,9 @@ TOKENS = {
         # Playing: the path behind the moving dot, built up as it goes.
         "trace": "rgba(74, 82, 93, 0.55)",
         "recent": "#d1332b",      # latest 12 months
+        # Playing: the moving tail and dot. Never red, which means "latest 12
+        # months"; with an event or range highlighted they take its blue.
+        "play": "#14171c",
         "highlight": "#1d63c9",   # event or dragged range
         "band": "rgba(29, 99, 201, 0.10)",
         "provisional": "rgba(20, 23, 28, 0.05)",
@@ -62,6 +65,7 @@ TOKENS = {
         "points": "rgba(231, 233, 236, 0.55)",
         "trace": "rgba(170, 178, 188, 0.50)",
         "recent": "#e8524a",
+        "play": "#e7e9ec",
         "highlight": "#4a8fe8",
         "band": "rgba(74, 143, 232, 0.16)",
         "provisional": "rgba(231, 233, 236, 0.06)",
@@ -85,6 +89,8 @@ ROLES = {
     "trace": {"line": "trace"},
     "recent": {"line": "recent", "marker": "recent"},
     "now": {"marker": "recent", "ring": "bg"},
+    "tail": {"line": "play", "marker": "play"},   # playing: tail behind the dot
+    "head": {"marker": "play", "ring": "bg"},     # playing: the moving dot
     "cursor": {"marker": "bg", "ring": "cursor"},
     "hover": {},
 }

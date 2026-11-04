@@ -127,6 +127,14 @@
     "marker": "#d1332b",
     "ring": "#ffffff"
    },
+   "tail": {
+    "line": "#14171c",
+    "marker": "#14171c"
+   },
+   "head": {
+    "marker": "#14171c",
+    "ring": "#ffffff"
+   },
    "cursor": {
     "marker": "#ffffff",
     "ring": "#14171c"
@@ -269,6 +277,14 @@
    },
    "now": {
     "marker": "#e8524a",
+    "ring": "#121418"
+   },
+   "tail": {
+    "line": "#e7e9ec",
+    "marker": "#e7e9ec"
+   },
+   "head": {
+    "marker": "#e7e9ec",
     "ring": "#121418"
    },
    "cursor": {

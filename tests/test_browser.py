@@ -224,17 +224,30 @@ def test_duffing_trajectory_hover_marks_the_time_series(browser, base_url):
 
 # ---- Playing through time --------------------------------------------------------
 
+# The playing tail and dot colours, and the theme's red and highlight blue.
+PLAY_COLORS = """() => {
+  const d = document.querySelector("[data-plot='phase']").data;
+  const p = (role) => d.find(t => t.meta.role === role && t.meta.play && !t.meta.dots && !t.meta.provisional);
+  return {tail: p('tail').line.color, head: p('head').marker.color};
+}"""
+
+
+def _theme(site, name="light"):
+    import json
+    return json.loads((site / "data/theme.json").read_text(encoding="utf-8"))[name]["roles"]
+
+
 PLAY = """(extra) => {
   const d = document.querySelector("[data-plot='phase']").data;
   const f = (meta) => d.find(t => Object.entries({...meta, ...(extra || {})}).every(([k, v]) => t.meta[k] === v));
-  const dot = f({role: 'now', play: true});
+  const dot = f({role: 'head', play: true});
   const hist = d.filter(t => t.meta.role === 'history' && !t.meta.play && (!extra || !extra.slot || t.meta.slot === extra.slot));
   const len = (m) => { const t = f(m); return t ? t.x.length : -1; };
   return {
     dot: dot && dot.x.length ? [dot.x[0], dot.y[0]] : null,
     trace: len({role: 'trace', provisional: false, play: true}) + Math.max(len({role: 'trace', provisional: true, play: true}), 0),
     highlight: len({role: 'highlight', provisional: false}),
-    tail: len({role: 'recent', provisional: false, play: true}),
+    tail: len({role: 'tail', provisional: false, play: true}),
     historyHidden: hist.every(t => t.visible === false),    // removed or hidden while playing
   };
 }"""
@@ -270,11 +283,15 @@ def _loop_point(data, i):
 def test_playing_moves_the_dot_and_the_time_cursor(browser, base_url, site):
     import json
     data = json.loads((site / "data/phase/nino12.json").read_text(encoding="utf-8"))
-    page, errors = _open(browser, base_url + "index.html?ev=")
+    page, errors = _open(browser, base_url + "index.html?ev=", color_scheme="light")
     assert _state(page) == "idle" and page.is_hidden("[data-player-stamp]")
     page.click("[data-player-toggle]")
     assert _state(page) == "playing"
     _wait_pos(page, 10)
+    roles = _theme(site)
+    colors = page.evaluate(PLAY_COLORS)        # neutral, not the "latest 12 months" red
+    assert colors == {"tail": roles["tail"]["line"], "head": roles["head"]["marker"]}
+    assert roles["recent"]["line"] not in colors.values()
     before = page.evaluate(PLAY)
     cursor_before = page.evaluate(TIME_CURSOR, {"role": "cursor", "row": "T"})
     _wait_pos(page, _pos(page) + 15)
@@ -313,10 +330,12 @@ def test_play_runs_only_the_highlighted_event(browser, base_url, site):
     data = json.loads((site / "data/phase/callao.json").read_text(encoding="utf-8"))
     ev = next(e for e in data["events"] if e["label"] == "1997-98")
     k = data["play"]["step"]
-    page, errors = _open(browser, base_url + "index.html?ds=callao&ev=")
+    page, errors = _open(browser, base_url + "index.html?ds=callao&ev=", color_scheme="light")
     page.click("[data-event='1997-98']")
     page.select_option("[data-player-speed]", "48")
     page.click("[data-player-toggle]")
+    blue = _theme(site)["highlight"]["line"]
+    assert page.evaluate(PLAY_COLORS) == {"tail": blue, "head": blue}     # the event's colour
     page.wait_for_function("document.querySelector('[data-player]').dataset.state === 'paused'", timeout=10000)
     scrub = page.locator("[data-player-scrub]")
     assert int(scrub.get_attribute("min")) == ev["i0"] * k
@@ -333,6 +352,7 @@ def test_play_runs_only_the_highlighted_event(browser, base_url, site):
     # Clearing the event while playing carries on over the whole record.
     page.click("[data-action='clear']")
     assert _state(page) == "playing" and page.locator("[data-player-scrub]").get_attribute("min") == "0"
+    assert page.evaluate(PLAY_COLORS)["tail"] == _theme(site)["tail"]["line"]   # neutral again
     assert errors == []
 
 

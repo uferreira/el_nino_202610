@@ -397,14 +397,14 @@
       put(Object.assign({ provisional: false }, other), [], []);
       put(Object.assign({ provisional: true }, other), [], []);
     }
-    put({ role: 'recent', provisional: false, play: true }, tail.solid.x, tail.solid.y);
-    put({ role: 'recent', provisional: true, play: true }, tail.prov.x, tail.prov.y);
+    put({ role: 'tail', provisional: false, play: true }, tail.solid.x, tail.solid.y);
+    put({ role: 'tail', provisional: true, play: true }, tail.prov.x, tail.prov.y);
     var dx = [], dy = [];
     if (!empty && opts.step) {
       for (var q = Math.ceil(t0 / opts.step) * opts.step; q <= i; q += opts.step) { dx.push(loop.x[q]); dy.push(loop.y[q]); }
     }
-    put({ role: 'recent', dots: true, play: true }, dx, dy);
-    put({ role: 'now', play: true }, empty ? [] : [loop.x[i]], empty ? [] : [loop.y[i]]);
+    put({ role: 'tail', dots: true, play: true }, dx, dy);
+    put({ role: 'head', play: true }, empty ? [] : [loop.x[i]], empty ? [] : [loop.y[i]]);
     return { idx: idx, x: xs, y: ys };
   }
 
@@ -418,6 +418,18 @@
       f.idx.forEach(function (j, n) { idx.push(j); data.push({ x: f.x[n], y: f.y[n] }); });
     });
     if (idx.length) Plotly.animate(div, { data: data, traces: idx }, STEP);
+  }
+
+  /* The moving tail and dot in another colour (the highlight's, while an
+   * event or range plays). */
+  function tintPlay(fig, color) {
+    fig.data.forEach(function (tr) {
+      var m = tr.meta || {};
+      if (!m.play || (m.role !== 'tail' && m.role !== 'head')) return;
+      if (m.role === 'tail') tr.line = Object.assign({}, tr.line, { color: color });
+      tr.marker = Object.assign({}, tr.marker, { color: color });
+    });
+    return fig;
   }
 
   /* While playing, the loop is redrawn once without what playing does not
@@ -473,7 +485,9 @@
         return data.period_labels[m] + (m >= data.provisional_from ? ' (provisional)' : '');
       },
       enter: function () {
-        drawPlaying(loop, paint(data.figures.phase, themeName()), function (m) {
+        var fig = paint(data.figures.phase, themeName());
+        if (highlight) tintPlay(fig, THEMES[themeName()].roles.highlight.line);
+        drawPlaying(loop, fig, function (m) {
           return m.role === 'recent' || m.role === 'now' || m.role === 'hover' || (m.role === 'history' && !highlight);
         }, function (an) { return an.name === 'now'; });
       },

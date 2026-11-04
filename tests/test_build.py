@@ -16,7 +16,7 @@ from enso.site.registry import Control, Option
 
 CFG = load_config()
 P = CFG.filter.provisional_months
-ROLES_LOOP = {"history", "highlight", "trace", "recent", "now", "cursor", "hover"}
+ROLES_LOOP = {"history", "highlight", "trace", "tail", "head", "recent", "now", "cursor", "hover"}
 ROLES_TIME = {"series", "anomaly", "highlight", "recent", "now", "cursor"}
 
 
@@ -274,8 +274,8 @@ def test_phase_loop_has_an_empty_play_layer_above_the_record(site, key):
     data = _phase(site, key)
     fig = data["figures"]["phase"]
     assert _play_kinds(fig) == sorted([("trace", "False", False), ("trace", "True", False),
-                                       ("recent", "False", False), ("recent", "True", False),
-                                       ("recent", "None", True), ("now", "None", False)])
+                                       ("tail", "False", False), ("tail", "True", False),
+                                       ("tail", "None", True), ("head", "None", False)])
     assert all(t["x"] == [] and t["y"] == [] for t in _play(fig))
     assert all("dash" in t["line"] for t in _play(fig) if t["meta"].get("provisional"))
     roles = [t["meta"]["role"] for t in fig["data"]]
@@ -293,8 +293,8 @@ def test_duffing_trajectory_has_a_play_layer_and_one_joinable_path(site):
         st = model.settings(CFG, preset)
         data = _load(site, f"data/duffing/trajectory/{preset}/1.json")
         fig = data["figures"]["phase"]
-        assert _play_kinds(fig) == sorted([("trace", "False", False), ("recent", "False", False),
-                                           ("now", "None", False)])
+        assert _play_kinds(fig) == sorted([("trace", "False", False), ("tail", "False", False),
+                                           ("head", "None", False)])
         per_cycle = st["samples_per_cycle"] * st["ndots"]
         assert data["play"] == {"unit": per_cycle, "step": st["ndots"], "tail": per_cycle}
         # site.js joins the per-cycle history paths into the trajectory it plays.
@@ -376,6 +376,9 @@ def test_theme_json_has_both_themes_and_every_role(site):
         assert ROLES_LOOP | ROLES_TIME | {"points", "dot"} <= set(t["roles"])
         assert set(t["slots"]) == {"A", "B", "C"}
         assert t["template"]["layout"]["xaxis"]["showgrid"] is False
+        # Red means "latest 12 months": the playing tail and dot are never red.
+        assert t["roles"]["tail"]["line"] == t["roles"]["head"]["marker"]
+        assert t["roles"]["tail"]["line"] not in (t["roles"]["recent"]["line"], t["roles"]["highlight"]["line"])
 
 
 def test_build_is_deterministic(site, tmp_path):

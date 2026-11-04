@@ -14,6 +14,7 @@
   --points: rgba(20, 23, 28, 0.55);
   --trace: rgba(74, 82, 93, 0.55);
   --recent: #d1332b;
+  --play: #14171c;
   --highlight: #1d63c9;
   --band: rgba(29, 99, 201, 0.10);
   --provisional: rgba(20, 23, 28, 0.05);
@@ -41,6 +42,7 @@
     --points: rgba(231, 233, 236, 0.55);
     --trace: rgba(170, 178, 188, 0.50);
     --recent: #e8524a;
+    --play: #e7e9ec;
     --highlight: #4a8fe8;
     --band: rgba(74, 143, 232, 0.16);
     --provisional: rgba(231, 233, 236, 0.06);
@@ -66,6 +68,7 @@
   --points: rgba(231, 233, 236, 0.55);
   --trace: rgba(170, 178, 188, 0.50);
   --recent: #e8524a;
+  --play: #e7e9ec;
   --highlight: #4a8fe8;
   --band: rgba(74, 143, 232, 0.16);
   --provisional: rgba(231, 233, 236, 0.06);
