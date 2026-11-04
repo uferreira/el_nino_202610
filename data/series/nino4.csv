@@ -1,6 +1,6 @@
 # dataset: nino4
 # source: NOAA CPC sstoi.indices, column ANOM4
-# fetched: 2026-11-03
+# fetched: 2026-11-04
 period,value,gap_filled
 1975-01,-0.6800,0
 1975-02,-0.1800,0
@@ -623,3 +623,4 @@ period,value,gap_filled
 2026-07,1.0600,0
 2026-08,0.9300,0
 2026-09,0.9500,0
+2026-10,1.2000,0
