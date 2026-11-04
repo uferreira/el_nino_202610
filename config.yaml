@@ -20,6 +20,12 @@ filter:
   # Why 10: see METHODS.md, "Provisional end".
   provisional_months: 10
 
+# Weekly SST (NOAA CPC wksst9120.for, enso.weekly): fetched with the monthly
+# SST into data/weekly/wksst.csv, not shown on the site yet. The filter is the
+# one above in weekly units (HN1, HN2 x 30.4375 / 7; METHODS.md, "Weekly SST").
+weekly:
+  harmonics: 4        # annual harmonics in the fitted seasonal cycle (NINO1+2)
+
 # Variable groups: one per kind of quantity. A group sets the unit and the
 # heading of its block in the dataset selector.
 groups:

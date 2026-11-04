@@ -8,6 +8,9 @@ on:
     # 06:00 UTC on days 1, 4, 6, 11, 16, 21, 26 and 31 (gaps of 3, 2, 5 days, and
     # 5 or 1 days after the 26th or 31st).
     - cron: '0 6 1,4,6,11,16,21,26,31 * *'
+    # Thursdays: the weekly file (data/weekly/wksst.csv) gains a week by
+    # Wednesday morning, so a new week is in the repository within a day.
+    - cron: '0 6 * * 4'
   workflow_dispatch:
 
 permissions:
@@ -34,7 +37,7 @@ jobs:
         run: pip install -e ".[test]" -c constraints.txt
 
       # Fetch SST, record the date in data/status/noaa_sst.json (shown on the
-      # site as "last checked"), rebuild, run the analysis and build tests,
+      # site as "last checked"), fetch the weekly SST into data/weekly/, rebuild, run the analysis and build tests,
       # commit data/series/nino*.csv, the status file and docs/, pull --rebase
       # and push (on a conflict with the sea-level writer: rebuild and retry
       # once). Exit 1: published, but a download failed; 2: nothing published.

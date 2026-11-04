@@ -80,6 +80,7 @@ class Config:
     current_event: CurrentEvent | None = None
     models: dict = field(default_factory=dict)
     site: dict = field(default_factory=dict)
+    weekly: dict = field(default_factory=dict)
 
     def dataset(self, key: str) -> Dataset:
         for ds in self.datasets:
@@ -130,4 +131,4 @@ def load_config(path: Path | str = CONFIG_PATH) -> Config:
     if current and current.label not in {e.label for e in events}:
         raise ValueError(f"current_event {current.label!r} is not listed under events")
     return Config(params, groups, datasets, events, current,
-                  raw.get("models", {}), raw.get("site", {}))
+                  raw.get("models", {}), raw.get("site", {}), raw.get("weekly", {}))

@@ -306,7 +306,10 @@ def kaplan_yorke(lambda1: float, lambda2: float, se: float = 0.0) -> tuple[float
 
     The section is a 2-D map with exponents lambda1 >= lambda2 (per forcing
     cycle): D = 1 + lambda1 / |lambda2| when lambda1 >= 0 > lambda1 + lambda2,
-    and 0 when lambda1 < 0 (the section is a finite set of points). Here
+    and 0 when lambda1 < 0 (the section is a finite set of points). The
+    attractor of the flow has one more dimension, D + 1 (the direction along
+    the trajectory): a periodic run is D = 0 on the section, a closed loop
+    (dimension 1) in the flow. Here
     lambda1 + lambda2 = B x period is fixed, so dD/dlambda1 = |s| / (lambda1 - s)^2
     with s = lambda1 + lambda2.
     """

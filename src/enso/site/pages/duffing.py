@@ -65,9 +65,9 @@ def _lyapunov_facts(cfg: Config, preset: str, L: dict) -> dict:
     a, b = L["window"]
     D, dse = model.kaplan_yorke(lam, L["lambda2"], se)
     if lam < 0:
-        dim, dim_note = "0", "a finite set of points"
+        dim, dim_note = "0", "a finite set of points; the attractor in the flow is a closed loop, D + 1 = 1"
     else:
-        dim, dim_note = f"{D:.3f} \u00b1 {dse:.3f}", "1 + \u03bb\u2081 / |\u03bb\u2082| of the section"
+        dim, dim_note = f"{D:.3f} \u00b1 {dse:.3f}", "1 + \u03bb\u2081 / |\u03bb\u2082|; the attractor in the flow has D + 1"
     c = L.get("check")
     check = ""
     if c:

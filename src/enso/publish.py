@@ -10,6 +10,8 @@ its own files:
 
 * data/series/<key>.csv for the datasets of its source type,
 * data/status/<source type>.json (with --status),
+* its extra files (EXTRA_FILES: the SST writer also keeps the weekly SST
+  record, data/weekly/wksst.csv),
 * docs/, which is shared but is a pure function of the committed code and
   data, so either writer can rebuild it from scratch (the footer's
   "data fetched" date is the latest date over all records, for example).
@@ -40,6 +42,9 @@ from enso.config import ROOT, Config, load_config
 
 EXIT_OK, EXIT_PARTIAL, EXIT_FAILED = 0, 1, 2
 
+# Files a writer keeps besides its datasets' series: source type -> paths.
+EXTRA_FILES = {"noaa_sst": ["data/weekly/wksst.csv"]}
+
 
 class PublishError(RuntimeError):
     pass
@@ -64,7 +69,16 @@ class Publisher:
 
     def fetch(self) -> list[tuple[str, str]]:
         from enso import fetch
-        return fetch.fetch_many(self.keys, self.cfg)
+        results = fetch.fetch_many(self.keys, self.cfg)
+        if self.source_type == "noaa_sst":
+            from enso import weekly
+            try:
+                line = weekly.fetch(self.root / EXTRA_FILES["noaa_sst"][0])
+            except Exception as exc:  # the monthly update goes on without it
+                line = f"FAILED weekly: {exc}"
+            log(line)
+            results.append(("weekly", line))
+        return results
 
     def build(self) -> None:
         from enso import build
@@ -77,13 +91,18 @@ class Publisher:
     def message(self) -> str:
         group = self.cfg.dataset(self.keys[0]).group.label
         last = max(series.read(k, self.root / "data" / "series").last_period for k in self.keys)
-        return f"data: {group} through {last} [auto]"
+        extra = ""
+        if self.source_type == "noaa_sst" and (self.root / EXTRA_FILES["noaa_sst"][0]).exists():
+            from enso import weekly
+            extra = f", weekly through {weekly.read(self.root / EXTRA_FILES['noaa_sst'][0]).last_week}"
+        return f"data: {group} through {last}{extra} [auto]"
 
     # -- own files ----------------------------------------------------------
 
     @property
     def data_paths(self) -> list[str]:
         paths = [f"data/series/{k}.csv" for k in self.keys]
+        paths += EXTRA_FILES.get(self.source_type, [])
         if self.write_status:
             paths.append(f"data/status/{self.source_type}.json")
         return paths
@@ -136,7 +155,11 @@ class Publisher:
         return [p for p in paths if p in tracked or any(t.startswith(p + "/") for t in tracked)]
 
     def _commit(self) -> bool:
-        self.git("add", "-A", "--", *self.own_paths)
+        # A path that is neither on disk nor tracked (an extra file not yet
+        # fetched) would make git add fail on an unmatched pathspec.
+        present = [p for p in self.own_paths
+                   if (self.root / p).exists() or p in self._tracked([p])]
+        self.git("add", "-A", "--", *present)
         if not self._staged():
             return False
         self.git("commit", "-m", self.message())

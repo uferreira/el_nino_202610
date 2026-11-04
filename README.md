@@ -22,12 +22,14 @@ draw the JSON that Python writes, with a small `site.js`.
 config.yaml            filter, datasets, events: the only settings file
 data/series/*.csv      monthly records, committed (fetch writes, build reads)
 data/model/*.npz       Duffing runs, committed (python -m enso.model writes, build reads)
+data/weekly/wksst.csv  weekly NOAA SST, committed by the SST writer (not on the site yet)
 data/status/*.json     date of each dataset's last successful download (shown as "last checked")
 src/enso/
   download.py          NOAA and UHSLC downloads (ported from el_nino)
   fourier.py           Fourier low-pass filter and derivative (ported)
   window.py            analysis window (ported)
   phasespace.py        record -> filtered (T, dT/dt)
+  weekly.py            weekly SST: parse wksst9120.for, the same analysis in weekly units
   model.py             python -m enso.model: Duffing runs -> data/model
   fetch.py             python -m enso.fetch: download -> data/series
   publish.py           python -m enso.publish: fetch, build, test, commit, push (both updaters)

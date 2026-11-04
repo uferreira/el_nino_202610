@@ -19,7 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest", "playwright"]
-scripts = ["matplotlib"]   # scripts/lyapunov_sweep.py
+scripts = ["matplotlib"]   # scripts/lyapunov_sweep.py, scripts/weekly_vs_monthly.py
 
 [tool.setuptools.packages.find]
 where = ["src"]
