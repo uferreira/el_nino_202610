@@ -1,0 +1,3 @@
+output/*.npz
+output/*.log
+__pycache__/
