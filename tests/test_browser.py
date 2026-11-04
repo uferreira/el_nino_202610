@@ -1,6 +1,7 @@
 """The page in a real browser: loads, links views, switches theme.
 
-Skipped when Playwright or its Chromium is not installed.
+Skipped when Playwright or its Chromium is not installed. ENSO_CPU_THROTTLE=6
+runs them on a 6 times slower CPU, as a check that no test depends on speed.
 """
 
 import functools
@@ -39,6 +40,10 @@ def base_url(site):
 
 def _open(browser, url, width=1280, **ctx):
     page = browser.new_context(viewport={"width": width, "height": 900}, **ctx).new_page()
+    import os
+    if os.environ.get("ENSO_CPU_THROTTLE"):     # imitate a slow CI runner
+        page.context.new_cdp_session(page).send(
+            "Emulation.setCPUThrottlingRate", {"rate": float(os.environ["ENSO_CPU_THROTTLE"])})
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(url)

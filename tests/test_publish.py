@@ -198,7 +198,8 @@ def test_behind_command_turns_red_when_noaa_is_ahead(monkeypatch, capsys):
     site_month = status.site_latest("nino12")
     monkeypatch.setitem(status.UPSTREAM, "noaa_sst", lambda: "2099-01")
     assert status.main(["--behind", "noaa_sst"]) == 1
-    assert "BEHIND nino12" in capsys.readouterr().out
+    out = capsys.readouterr().out      # "BEHIND nino12", or "::error::site behind nino12" on GitHub
+    assert "BEHIND nino12" in out or "::error::site behind nino12" in out
     monkeypatch.setitem(status.UPSTREAM, "noaa_sst", lambda: site_month)
     assert status.main(["--behind", "noaa_sst"]) == 0
 
