@@ -1,6 +1,7 @@
-# Store text files with LF line endings. On Windows, core.autocrlf still
-# checks them out as CRLF; WSL and Linux see LF.
-* text=auto
+# Text files are LF in the repository and in every working copy, also on
+# Windows with core.autocrlf=true: the build writes LF, and the sea-level PC
+# and CI must see the same bytes (python -m enso.build --check).
+* text=auto eol=lf
 
 # Legacy NOAA file stored with CRLF endings: keep it byte for byte.
 data/sst1950_1981.txt -text
