@@ -612,3 +612,40 @@ def test_compare_hover_marks_monthly_and_weekly_records(browser, base_url):
     assert page.evaluate(TRACE, ["phase", {"role": "cursor", "slot": "A"}]) == 1
     assert page.evaluate(TRACE, ["phase", {"role": "cursor", "slot": "B"}]) == 1
     assert errors == []
+
+
+def test_compare_plays_the_weekly_record_to_its_last_week(browser, base_url, site):
+    import json
+    w = json.loads((site / "data/compare/nino12w.json").read_text(encoding="utf-8"))
+    page, errors = _open(browser, base_url + "compare.html?a=nino12&b=nino12w&ev=")
+    page.select_option("[data-player-speed]", "48")
+    page.click("[data-player-toggle]")
+    page.wait_for_function("document.querySelector('[data-player]').dataset.state === 'paused'", timeout=60000)
+    assert _pos(page) == w["cal_last"]                                         # the player's end
+    assert page.evaluate(PLAY, {"slot": "B"})["dot"] == [w["loop"]["x"][-1], w["loop"]["y"][-1]]   # the last week
+    assert page.evaluate(TIME_CURSOR, {"role": "cursor", "slot": "B"}).startswith(w["periods"][-1])
+    # With monthly records only, it still ends with their last month.
+    page.select_option("select[name='b']", "callao")
+    _idle(page)
+    page.wait_for_timeout(200)
+    assert page.locator("[data-player-scrub]").get_attribute("max") == str(_load_cal_last(site, "nino12"))
+    assert errors == []
+
+
+def _load_cal_last(site, key):
+    import json
+    return json.loads((site / f"data/compare/{key}.json").read_text(encoding="utf-8"))["cal_last"]
+
+
+def test_compare_labels_of_close_latest_points_do_not_overlap(browser, base_url):
+    page, errors = _open(browser, base_url + "compare.html?a=nino12&b=nino12w&ev=")
+    boxes = page.evaluate("""() => [...document.querySelectorAll("[data-plot='phase'] .annotation")]
+      .map(g => g.getBoundingClientRect()).map(r => [r.left, r.top, r.right, r.bottom])""")
+    assert len(boxes) == 2
+    (a0, a1, a2, a3), (b0, b1, b2, b3) = boxes
+    assert a2 <= b0 or b2 <= a0 or a3 <= b1 or b3 <= a1, boxes               # apart, not on top of each other
+    # each name is in its record's colour
+    colours = page.evaluate("""() => [...document.querySelectorAll("[data-plot='phase'] .annotation text")]
+      .map(t => getComputedStyle(t).fill)""")
+    assert colours[0] != colours[1]
+    assert errors == []

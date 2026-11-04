@@ -803,6 +803,32 @@
     return out;
   }
 
+  /* Names beside the records' latest points: where two are close (monthly and
+   * weekly NINO1+2 end a fortnight apart on the same loop) one would cover the
+   * other. After drawing, each label that overlaps an earlier one is moved up
+   * just far enough to clear it. Placement only. */
+  function separateLabels(div) {
+    var els = $$(div, '.infolayer .annotation'), anns = (div.layout.annotations || []);
+    if (!els.length || els.length !== anns.length) return;
+    var rects = els.map(function (el) { return el.getBoundingClientRect(); });
+    var up = rects.map(function () { return 0; });
+    for (var i = 1; i < rects.length; i++) {
+      for (var pass = 0; pass < rects.length; pass++) {
+        var moved = false;
+        for (var j = 0; j < i; j++) {
+          var r = rects[i], q = rects[j], u = up[i], v = up[j];
+          var overlapX = r.left < q.right && q.left < r.right;
+          var overlapY = r.top - u < q.bottom - v && q.top - v < r.bottom - u;
+          if (overlapX && overlapY) { up[i] = (r.bottom - (q.top - v)) + 2; moved = true; }
+        }
+        if (!moved) break;
+      }
+    }
+    var change = {};
+    up.forEach(function (u, i) { if (u > 0) change['annotations[' + i + '].yshift'] = (anns[i].yshift || 0) + u; });
+    if (Object.keys(change).length) Plotly.relayout(div, change);
+  }
+
   RENDERERS['compare-linked'] = function (panel) {
     var loop = $(panel, '[data-plot="phase"]');
     var time = $(panel, '[data-plot="time"]');
@@ -823,7 +849,11 @@
       range: function () {
         var f = state.frame, k = f.play.step;
         var idx = highlight ? rangeToIndices(f.calendar, [highlight.from, highlight.to]) : null;
-        return idx ? { a: idx.i0 * k, b: idx.i1 * k } : { a: 0, b: (f.calendar.length - 1) * k };
+        // To the latest sample of any chosen record (a weekly record ends a little
+        // after the middle of the last month).
+        var ends = state.slots.map(function (s) { return s.data.cal_last; }).filter(function (v) { return v !== null && v !== undefined; });
+        var end = ends.length ? Math.max.apply(null, ends) : (f.calendar.length - 1) * k;
+        return idx ? { a: idx.i0 * k, b: idx.i1 * k } : { a: 0, b: end };
       },
       unit: function () { return state.frame.play.unit; },
       label: function (i) { return state.frame.calendar_labels[Math.floor(i / state.frame.play.step)]; },
@@ -874,6 +904,7 @@
         loopFig.data = loopFig.data.concat(slotTraces(s.data.traces.loop, s.slot));
         timeFig.data = timeFig.data.concat(slotTraces(s.data.traces.time, s.slot));
         loopFig.layout.annotations.push(Object.assign({}, s.data.label_annotation, { name: s.slot }));
+        loopFig.layout.annotations[loopFig.layout.annotations.length - 1].font = { color: THEMES[themeName()].slots[s.slot] };
         if (s.data.provisional_start && (!provFrom || s.data.provisional_start < provFrom)) provFrom = s.data.provisional_start;
       });
       var ext = unionExtent(state.slots);
@@ -894,7 +925,7 @@
       return Promise.all([
         draw(loop, paint(f.loop, name), 'enso-compare-loops'),
         draw(time, paint(f.time, name), 'enso-compare-time')
-      ]).then(function () { bindOnce(); applyHighlight(); });
+      ]).then(function () { bindOnce(); applyHighlight(); separateLabels(loop); });
     }
 
     /* A highlight is a pair of dates; each slot maps it to its own months. */

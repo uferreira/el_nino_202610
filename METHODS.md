@@ -188,9 +188,17 @@ the phase differs by 1.1 days. The anomalies, once the cycle is removed,
 agree to 0.047 °C and the rate of the anomaly alone to 0.010 °C/month (its
 spread: 0.164). The loops in the figure have the same shape and timing; the
 weekly one sits slightly inside the monthly one where the seasonal swing is
-largest. Whether sampling alone (a week against a month mean) or a different
-processing of OISST causes the amplitude gap is not settled here; the gap is
-a property of the files and does not depend on the filter.
+largest.
+
+Averaging cannot explain the smaller weekly annual cycle. A one-month boxcar
+mean reduces a 12-month sinusoid by sinc(π/12) ≈ 0.989 (1.1%) and a one-week
+mean by about 0.06%, so the weekly cycle should be slightly larger than the
+monthly one, not 4% smaller. The difference most likely comes from different
+processing of the two NOAA products (grid, analysis version or averaging); it
+is to be checked against the NOAA CPC documentation. It is a property of the
+files and does not depend on the filter. **Weekly and monthly NINO1+2 should
+therefore not be mixed in quantitative comparisons**: their shapes and timing
+agree, but their absolute values and seasonal swing differ.
 
 Peaks of the filtered anomaly (the time panel's bold line) and of the
 observed anomaly, inside each event's months (`config.yaml` events):

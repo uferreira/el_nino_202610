@@ -239,11 +239,18 @@ def test_weekly_time_hover_shows_the_date(site):
 def test_compare_weekly_record_has_a_calendar_map(site):
     w, f = _load(site, "data/compare/nino12w.json"), _load(site, "data/compare/frame.json")
     k = f["play"]["step"]
-    assert len(w["cal_map"]) == (len(f["calendar"]) - 1) * k + 1 and w["weekly"] is True
+    m = _load(site, "data/compare/nino12.json")
+    assert w["weekly"] is True and m["cal_last"] == (len(f["calendar"]) - 1) * k    # monthly ends with its month
+    # The weekly record ends a little after the middle of the last month: the calendar's points
+    # run on to the one that shows its last week, and no further.
+    assert w["cal_last"] > m["cal_last"] and w["cal_last"] - m["cal_last"] < k
+    assert len(w["cal_map"]) == w["cal_last"] + 1
     cal = np.array(w["cal_map"])
-    assert cal[0] == -1 and (np.diff(cal) >= 0).all() and cal[-1] >= len(w["periods"]) - 20
+    assert cal[0] == -1 and (np.diff(cal) >= 0).all() and cal[-1] == len(w["periods"]) - 1
+    assert cal[-2] < cal[-1] or cal[-2] == cal[-1]
+    assert _load(site, "data/compare/model.json")["cal_last"] is None
     # each calendar point (k per month, the first at mid-month) shows the week nearest its date
-    for i in (len(cal) // 3, len(cal) // 2 + 2, len(cal) - 1):
+    for i in (len(cal) // 3, len(cal) // 2 + 2):
         day = np.datetime64(f["calendar"][i // k] + "-15") + np.timedelta64(round((i % k) * 30.4375 / k), "D")
         assert abs((np.datetime64(w["periods"][cal[i]]) - day).astype(int)) <= 4
     assert w["play"] == {"step": 1, "tail": 52}

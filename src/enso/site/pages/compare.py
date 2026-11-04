@@ -207,16 +207,33 @@ def calendar_months(records: list[Norm]) -> tuple[list[str], int]:
     return calendar, ks.pop()
 
 
-def calendar_map(r: Norm, calendar: list[str], k: int) -> list[int]:
-    """For a weekly record: the loop point (a week) shown at each point of the
-    monthly calendar (k points per month, the first at the middle of its month).
-    -1 before the record starts; the last week after it ends."""
+def _weekly_positions(r: Norm, calendar: list[str], k: int, points: int) -> np.ndarray:
+    """The loop point (a week) of weekly record ``r`` at each of the first
+    ``points`` calendar points (k per month, the first at the middle of its
+    month). -1 before the record starts; its last week after it ends."""
     t0 = dt.date.fromisoformat(calendar[0] + "-15")
-    days = np.arange((len(calendar) - 1) * k + 1) * (30.4375 / k)
-    week0 = dt.date.fromisoformat(r.periods[0])
-    weeks = ((t0 - week0).days + days) / 7.0
-    j = np.where(weeks < -0.5, -1, np.minimum(np.rint(weeks), len(r.periods) - 1))
-    return j.astype(int).tolist()
+    days = np.arange(points) * (30.4375 / k)
+    weeks = ((t0 - dt.date.fromisoformat(r.periods[0])).days + days) / 7.0
+    return np.where(weeks < -0.5, -1, np.minimum(np.rint(weeks), len(r.periods) - 1)).astype(int)
+
+
+def last_point(r: Norm, calendar: list[str], k: int) -> int:
+    """The last calendar point at which record ``r`` has data (its latest
+    sample): a monthly record ends with its last month, a weekly one when the
+    calendar reaches its last week, which can be a little after the middle of
+    the last calendar month. The shared player runs to the latest of the
+    chosen records, so every dot reaches its record's end."""
+    if r.weekly:
+        j = _weekly_positions(r, calendar, k, (len(calendar) + 3) * k)
+        return int(np.argmax(j == len(r.periods) - 1))
+    return (calendar.index(r.periods[0][:7]) + len(r.periods) - 1) * k
+
+
+def calendar_map(r: Norm, calendar: list[str], k: int) -> list[int]:
+    """For a weekly record: its loop point at each calendar point, up to the
+    later of the calendar's last month and the record's own end."""
+    points = max((len(calendar) - 1) * k, last_point(r, calendar, k)) + 1
+    return _weekly_positions(r, calendar, k, points).tolist()
 
 
 def build_record(cfg: Config, r: Norm, calendar: tuple[list[str], int] | None = None) -> dict:
@@ -241,6 +258,7 @@ def build_record(cfg: Config, r: Norm, calendar: tuple[list[str], int] | None = 
         # Loop points per sample and the 12-month tail, in this record's own points.
         "play": {"step": r.ndots, "tail": r.recent * r.ndots},
         "cal_map": calendar_map(r, *calendar) if (r.weekly and calendar) else None,
+        "cal_last": last_point(r, *calendar) if (on_calendar and calendar) else None,
         "traces": {"loop": loop_traces(r), "time": time_traces(r), "section": section_traces(r)},
     }
 
