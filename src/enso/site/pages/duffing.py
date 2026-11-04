@@ -20,8 +20,8 @@ from plotly.subplots import make_subplots
 from enso import model
 from enso.config import Config
 from enso.phasespace import MONTH_NAMES
-from enso.site.figures import MINUS, export, fmt, history_paths, padded, rnd
-from enso.site.registry import Control, Option, Page, Panel
+from enso.site.figures import MINUS, export, fmt, history_paths, padded, play_traces, rnd
+from enso.site.registry import Control, Option, Page, Panel, Player
 
 DEC = 4
 
@@ -131,6 +131,8 @@ def trajectory(cfg: Config, preset: str, fa: str) -> dict:
 
     loop = go.Figure()
     loop.add_traces(history_paths(x, y, per_cycle, len(x) - 1, (DEC, DEC), width=1.0))
+    # Filled while playing: the path so far, the last forcing cycle behind the dot, the dot.
+    loop.add_traces(play_traces(provisional=False, tail_dots=False))
     loop.add_scatter(x=[], y=[], mode="markers", marker={"size": 12, "line": {"width": 2}},
                      hoverinfo="skip", meta={"role": "cursor"})
     loop.add_scatter(x=rnd(x[::k], DEC), y=rnd(y[::k], DEC), mode="markers",
@@ -174,6 +176,9 @@ def trajectory(cfg: Config, preset: str, fa: str) -> dict:
         "facts": facts(cfg, preset, factor, run),
         "span": f"Last {m['trajectory_cycles']} forcing cycles of the run, after "
                 f"{m['transient_cycles']} discarded.",
+        # Animation, in loop points: per speed unit (a forcing cycle), per time
+        # series sample, and the tail behind the dot (one forcing cycle).
+        "play": {"unit": per_cycle, "step": k, "tail": per_cycle},
         "figures": {"phase": export(loop), "time": export(time)},
     }
 
@@ -234,7 +239,10 @@ def page(cfg: Config) -> Page:
     phases = Control("phase", "Phase of the forcing",
                      [Option(str(j), f"{360 * j // m['phases']}°") for j in range(m["phases"])],
                      "0", play=True)
-    traj = Panel(id="trajectory", kind="trajectory-linked", title="Trajectory",
+    speeds = Player(speeds=[Option(v, f"{label} cycle{'s' if float(v) > 1 else ''}/s")
+                            for v, label in (("0.25", "¼"), ("0.5", "½"), ("1", "1"), ("2", "2"), ("4", "4"))],
+                    default="1", unit="forcing cycle")
+    traj = Panel(id="trajectory", kind="trajectory-linked", title="Trajectory", player=speeds,
                  data="data/duffing/trajectory/{preset}/{fa}.json",
                  build=lambda preset, fa: trajectory(cfg, preset, fa))
     sec = Panel(id="section", kind="figure", title="Poincaré section",
@@ -264,6 +272,10 @@ state between the wells; damping (B &lt; 0) removes energy.</p>
 <p>The El Niño fit uses the coefficients of the original Java applet. They
 were not re-estimated from the records on this site, so it is a hypothesis to
 compare with the observations (see the Compare page), not a validated fit.</p>
+<p>Play draws the trajectory through time: a dot moves along it, the last
+forcing cycle trails behind it in red, and the path builds up behind; the
+time series marks the same moment. The Poincaré section has its own play
+button, which steps the phase of the forcing.</p>
 <p>Each run integrates one trajectory with scipy's RK45 (relative tolerance
 1e-6), discards the first forcing cycles as transient, and keeps the rest.
 The section shows that same trajectory once per forcing cycle; it is not a

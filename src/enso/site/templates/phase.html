@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import control %}
+{% from "_macros.html" import control, player %}
 {% block content %}
 {% for panel in page.panels %}
 <section class="panel" id="{{ panel.id }}" data-kind="{{ panel.kind }}" data-src="{{ panel.data }}" aria-busy="true">
@@ -17,7 +17,11 @@
 
   <div class="linked">
     <div class="linked__loop">
-      <div class="plot plot--square" data-plot="phase" role="img" aria-label="Phase diagram"></div>
+      <div class="plot-frame">
+        <div class="plot plot--square" data-plot="phase" role="img" aria-label="Phase diagram"></div>
+        <div class="plot-stamp" data-player-stamp hidden></div>
+      </div>
+      {{ player(panel) }}
     </div>
 
     <div class="linked__side">
@@ -32,7 +36,8 @@
           <div><dt>Rate, provisional</dt><dd data-field="now.rate"></dd></div>
         </dl>
         <p class="now__note"><span data-field="now.note"></span>
-          Data through <span data-field="now.through"></span>, updated <span data-field="now.updated"></span>.</p>
+          Data through <span data-field="now.through"></span>, updated <span data-field="now.updated"></span>.
+          <span class="now__checked"><span data-field="now.source_name"></span> last checked <span data-field="now.checked"></span>.</span></p>
       </div>
 
       <ul class="key" aria-label="Legend">

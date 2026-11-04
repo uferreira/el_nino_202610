@@ -1,12 +1,13 @@
 name: Update SST
 
-# NOAA CPC SST indices every 5 days. Sea level (UHSLC) is updated elsewhere:
-# UHSLC drops connections from GitHub-hosted runners (see README, "Updates").
+# NOAA CPC SST indices every 5 days, and on the 4th: NOAA posts the new month
+# around the 3rd. Sea level (UHSLC) is updated elsewhere: UHSLC drops
+# connections from GitHub-hosted runners (see README, "Updates").
 on:
   schedule:
-    # 06:00 UTC on days 1, 6, 11, 16, 21, 26 (and 31): "*/5" counts from day 1
-    # and restarts each month, so the gap after the 26th or 31st is 5 or 1 days.
-    - cron: '0 6 */5 * *'
+    # 06:00 UTC on days 1, 4, 6, 11, 16, 21, 26 and 31 (gaps of 3, 2, 5 days, and
+    # 5 or 1 days after the 26th or 31st).
+    - cron: '0 6 1,4,6,11,16,21,26,31 * *'
   workflow_dispatch:
 
 permissions:
@@ -32,17 +33,24 @@ jobs:
       - name: Install
         run: pip install -e ".[test]" -c constraints.txt
 
-      # Fetch SST, rebuild, run the analysis and build tests, commit
-      # data/series/nino*.csv and docs/ if anything changed, pull --rebase and
-      # push (on a conflict with the sea-level writer: rebuild and retry once).
-      # Exit 1: published, but a download failed; 2: nothing published.
+      # Fetch SST, record the date in data/status/noaa_sst.json (shown on the
+      # site as "last checked"), rebuild, run the analysis and build tests,
+      # commit data/series/nino*.csv, the status file and docs/, pull --rebase
+      # and push (on a conflict with the sea-level writer: rebuild and retry
+      # once). Exit 1: published, but a download failed; 2: nothing published.
       - name: Update and publish SST
         env:
           PYTHONUNBUFFERED: '1'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          python -m enso.publish --source-type noaa_sst
+          python -m enso.publish --source-type noaa_sst --status
+
+      # Red when NOAA has a later month than docs/ (what the site serves):
+      # the update above did not bring it in.
+      - name: Check that the site has NOAA's latest month
+        if: always()
+        run: python -m enso.status --behind noaa_sst
 
       # Sea level is updated by a scheduled task on a PC (README, "Updates").
       # Its runs record their dates in data/status/uhslc.json; turn this run

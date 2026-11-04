@@ -116,6 +116,9 @@
    "highlight": {
     "line": "#1d63c9"
    },
+   "trace": {
+    "line": "rgba(74, 82, 93, 0.55)"
+   },
    "recent": {
     "line": "#d1332b",
     "marker": "#d1332b"
@@ -256,6 +259,9 @@
    },
    "highlight": {
     "line": "#4a8fe8"
+   },
+   "trace": {
+    "line": "rgba(170, 178, 188, 0.50)"
    },
    "recent": {
     "line": "#e8524a",

@@ -1,0 +1,25 @@
+{
+ "source_type": "noaa_sst",
+ "datasets": {
+  "nino12": {
+   "last_attempt": "2026-11-04",
+   "last_result": "SAME",
+   "checked": "2026-11-04"
+  },
+  "nino3": {
+   "last_attempt": "2026-11-04",
+   "last_result": "SAME",
+   "checked": "2026-11-04"
+  },
+  "nino34": {
+   "last_attempt": "2026-11-04",
+   "last_result": "SAME",
+   "checked": "2026-11-04"
+  },
+  "nino4": {
+   "last_attempt": "2026-11-04",
+   "last_result": "SAME",
+   "checked": "2026-11-04"
+  }
+ }
+}

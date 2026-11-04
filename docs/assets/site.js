@@ -78,6 +78,11 @@
     });
   }
 
+  function rgba(hex, a) {
+    var n = parseInt(hex.slice(1), 16);
+    return 'rgba(' + (n >> 16) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + a + ')';
+  }
+
   /** Give a figure the theme's template and colour each trace by role or slot. */
   function paint(fig, name) {
     var t = THEMES[name];
@@ -91,6 +96,13 @@
       var lineColor = slot || r.line, markerColor = slot || r.marker;
       if (m.role === 'cursor') markerColor = r.marker;          // hollow ring
       var ring = r.ring && (m.role === 'cursor' && slot ? slot : r.ring);
+      // A translucent line as an rgba colour, not trace opacity: it looks the
+      // same (one path is one stroke) and the browser does not composite a
+      // layer per trace on every animation frame.
+      if (r.line && tr.mode === 'lines' && tr.opacity !== undefined && tr.opacity < 1 && /^#[0-9a-f]{6}$/i.test(lineColor)) {
+        lineColor = rgba(lineColor, tr.opacity);
+        delete tr.opacity;
+      }
       if (r.line) tr.line = Object.assign({}, tr.line, { color: lineColor });
       if (r.marker || ring) {
         tr.marker = Object.assign({}, tr.marker);
@@ -127,6 +139,7 @@
       modeBarButtons: [['toImage']],
       toImageButtonOptions: { format: 'png', scale: 2, filename: filename }
     };
+    div._ensoConfig = config;      // reused when playing redraws the plot
     return Plotly.react(div, fig.data, fig.layout, config);
   }
 
@@ -145,19 +158,34 @@
     if (i >= 0) Plotly.restyle(div, { x: [x], y: [y] }, [i]);
   }
 
-  /** A highlighted stretch of a loop, split at the first provisional month. */
-  function loopSegments(loop, k, p, i0, i1) {
+  /** Loop points a..b (inclusive), split at loop point `split` (the first
+   * provisional one; Infinity for none) into a solid and a dashed part. */
+  function segments(loop, a, b, split) {
     var solid = { x: [], y: [] }, prov = { x: [], y: [] };
-    if (p === null || p === undefined) p = Infinity;
-    if (i0 <= Math.min(i1, p)) {
-      var b = Math.min(i1, p) * k + 1;
-      solid = { x: loop.x.slice(i0 * k, b), y: loop.y.slice(i0 * k, b) };
+    if (a <= Math.min(b, split)) {
+      var e = Math.min(b, split) + 1;
+      solid = { x: loop.x.slice(a, e), y: loop.y.slice(a, e) };
     }
-    if (i1 > p) {
-      var a = Math.max(i0, p) * k;
-      prov = { x: loop.x.slice(a, i1 * k + 1), y: loop.y.slice(a, i1 * k + 1) };
+    if (b > split) {
+      var s = Math.max(a, split);
+      prov = { x: loop.x.slice(s, b + 1), y: loop.y.slice(s, b + 1) };
     }
     return { solid: solid, prov: prov };
+  }
+
+  /** A highlighted stretch of a loop (months i0..i1), split at the first provisional month p. */
+  function loopSegments(loop, k, p, i0, i1) {
+    return segments(loop, i0 * k, i1 * k, (p === null || p === undefined) ? Infinity : p * k);
+  }
+
+  /** Per-period paths (each starting where the last one ended) joined into one loop. */
+  function joinPaths(traces) {
+    var x = [], y = [];
+    traces.forEach(function (t, j) {
+      x = x.concat(j ? t.x.slice(1) : t.x);
+      y = y.concat(j ? t.y.slice(1) : t.y);
+    });
+    return { x: x, y: y };
   }
 
   /** Month indices covered by a dragged range: dates ("YYYY-MM...") or numbers. */
@@ -241,6 +269,181 @@
     buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(!!label && label === b.dataset.event)); });
   }
 
+  // ---- Player: animation through precomputed arrays ----------------------------
+
+  /* The panel's [data-player] bar drives it; the renderer supplies hooks:
+   *   ready()      data loaded?
+   *   range()      {a, b}: first and last loop point to play (inclusive)
+   *   unit()       loop points per speed unit (a month, a forcing cycle)
+   *   label(i)     text for loop point i
+   *   enter()      hide the static end state (called again when the range changes)
+   *   frame(i, a)  draw loop point i, playing from a
+   *   leave()      back to the static view
+   * States: idle (static view), playing, paused. The bar's data-state shows it. */
+  function Player(panel, hooks) {
+    var el = $(panel, '[data-player]');
+    if (!el) return null;
+    var toggle = $(el, '[data-player-toggle]'), reset = $(el, '[data-player-reset]');
+    var scrub = $(el, '[data-player-scrub]'), label = $(el, '[data-player-label]');
+    var speed = $(el, '[data-player-speed]'), stamp = $(panel, '[data-player-stamp]');
+    var state = 'idle', pos = 0, shown = -1, r = { a: 0, b: 0 }, raf = null, last = null;
+
+    function setState(s) {
+      state = s;
+      el.dataset.state = s;
+      toggle.setAttribute('aria-pressed', String(s === 'playing'));
+      toggle.setAttribute('aria-label', s === 'playing' ? 'Pause' : 'Play through time');
+      reset.disabled = s === 'idle';
+      if (s !== 'playing' && raf !== null) { cancelAnimationFrame(raf); raf = null; }
+    }
+
+    function setRange() {
+      r = hooks.range();
+      scrub.min = r.a; scrub.max = r.b;
+    }
+
+    function show(i) {
+      shown = Math.max(r.a, Math.min(r.b, Math.floor(i)));
+      hooks.frame(shown, r.a);
+      scrub.value = shown;
+      var t = hooks.label(shown);
+      label.textContent = t;
+      if (stamp) { stamp.textContent = t; stamp.hidden = false; }
+    }
+
+    function tick(now) {
+      raf = null;
+      if (state !== 'playing') return;
+      if (last !== null) {      // capped: a tab in the background must not jump ahead
+        pos += Math.min(now - last, 100) / 1000 * (+speed.value) * hooks.unit();
+      }
+      last = now;
+      if (pos >= r.b) { pos = r.b; show(pos); setState('paused'); return; }
+      if (Math.floor(pos) !== shown) show(pos);
+      raf = requestAnimationFrame(tick);
+    }
+
+    function play() {
+      if (!hooks.ready()) return;
+      if (state === 'idle') { setRange(); hooks.enter(); pos = r.a; }
+      else if (pos >= r.b) pos = r.a;
+      setState('playing');
+      last = null;
+      show(pos);
+      raf = requestAnimationFrame(tick);
+    }
+
+    function stop() {
+      if (state === 'idle') return;
+      setState('idle');
+      hooks.leave();
+      label.textContent = '';
+      if (stamp) stamp.hidden = true;
+    }
+
+    /* After a redraw, a new dataset or a new range: keep going from `at`
+     * (a loop point of the new data) or, if it is outside the range, the start.
+     * Idle, it only sets the slider's range, so the slider works before Play. */
+    function sync(at) {
+      if (!hooks.ready()) return;
+      if (state === 'idle') { setRange(); scrub.value = r.a; return; }
+      setRange();
+      if (at !== undefined && at !== null) pos = at;
+      if (pos < r.a || pos > r.b) pos = r.a;
+      hooks.enter();
+      show(pos);
+      last = null;
+    }
+
+    toggle.addEventListener('click', function () { if (state === 'playing') setState('paused'); else play(); });
+    reset.addEventListener('click', stop);
+    scrub.addEventListener('input', function () {
+      if (!hooks.ready()) return;
+      if (state === 'idle') { setRange(); hooks.enter(); setState('paused'); }
+      pos = +scrub.value;
+      last = null;
+      show(pos);
+    });
+    setState('idle');
+
+    return {
+      active: function () { return state !== 'idle'; },
+      position: function () { return Math.floor(pos); },
+      sync: sync
+    };
+  }
+
+  /* The play layer of one loop (the traces with meta.play, made in Python):
+   * the path from a to i, the tail behind the dot, the tail's monthly points
+   * and the dot. `extra` narrows the trace lookup (Compare: the slot). With
+   * `into` set, the path goes into those traces instead (a highlight). */
+  function playFrame(div, loop, i, a, opts, extra) {
+    var split = opts.split === null || opts.split === undefined ? Infinity : opts.split;
+    var m = function (o) { return Object.assign({}, o, extra || {}); };
+    var idx = [], xs = [], ys = [];
+    function put(meta, x, y) {
+      var j = traceIndex(div, m(meta));
+      if (j >= 0) { idx.push(j); xs.push(x); ys.push(y); }
+    }
+    var empty = i < a;
+    var path = empty ? segments(loop, 0, -1, split) : segments(loop, a, i, split);
+    var t0 = Math.max(a, i - opts.tail);
+    var tail = empty ? path : segments(loop, t0, i, split);
+    var into = opts.into || { role: 'trace', play: true };
+    var other = opts.into ? { role: 'trace', play: true } : null;
+    put(Object.assign({ provisional: false }, into), path.solid.x, path.solid.y);
+    put(Object.assign({ provisional: true }, into), path.prov.x, path.prov.y);
+    if (other) {
+      put(Object.assign({ provisional: false }, other), [], []);
+      put(Object.assign({ provisional: true }, other), [], []);
+    }
+    put({ role: 'recent', provisional: false, play: true }, tail.solid.x, tail.solid.y);
+    put({ role: 'recent', provisional: true, play: true }, tail.prov.x, tail.prov.y);
+    var dx = [], dy = [];
+    if (!empty && opts.step) {
+      for (var q = Math.ceil(t0 / opts.step) * opts.step; q <= i; q += opts.step) { dx.push(loop.x[q]); dy.push(loop.y[q]); }
+    }
+    put({ role: 'recent', dots: true, play: true }, dx, dy);
+    put({ role: 'now', play: true }, empty ? [] : [loop.x[i]], empty ? [] : [loop.y[i]]);
+    return { idx: idx, x: xs, y: ys };
+  }
+
+  /* Apply one or more playFrame results in one call. Plotly.animate with
+   * redraw off redraws only the traces it is given (restyle would redraw
+   * every trace of the plot, several times slower on a long record). */
+  var STEP = { transition: { duration: 0 }, frame: { duration: 0, redraw: false }, mode: 'immediate' };
+  function applyFrames(div, frames) {
+    var idx = [], data = [];
+    frames.forEach(function (f) {
+      f.idx.forEach(function (j, n) { idx.push(j); data.push({ x: f.x[n], y: f.y[n] }); });
+    });
+    if (idx.length) Plotly.animate(div, { data: data, traces: idx }, STEP);
+  }
+
+  /* While playing, the loop is redrawn once without what playing does not
+   * show: traces for which hide(meta) is true, annotations for which
+   * hideNote(annotation) is true, and the per-year context paths joined into
+   * one path per record. Each frame costs in proportion to the number of
+   * traces (Plotly re-checks them all), so this keeps playing smooth.
+   * Leaving play draws the full figure again. */
+  function drawPlaying(div, fig, hide, hideNote) {
+    var data = [], joined = {};
+    fig.data.forEach(function (t) {
+      var m = t.meta || {};
+      if (!m.play && hide(m)) return;
+      if (m.role === 'history' && !m.provisional && !m.play) {
+        var j = joined[m.slot || ''];
+        if (j) { j.x = j.x.concat(t.x.slice(1)); j.y = j.y.concat(t.y.slice(1)); return; }
+        t = joined[m.slot || ''] = Object.assign({}, t, { x: t.x.slice(), y: t.y.slice() });
+      }
+      data.push(t);
+    });
+    var layout = Object.assign({}, fig.layout, {
+      annotations: (fig.layout.annotations || []).filter(function (an) { return !hideNote(an); })
+    });
+    return Plotly.react(div, data, layout, div._ensoConfig);
+  }
+
   // ---- Renderers ---------------------------------------------------------------
 
   var RENDERERS = {};
@@ -254,6 +457,36 @@
     var buttons = $$(panel, '[data-event]');
     var data = null, highlight = null, bound = false;
     var pending = initialEvent();
+
+    /* Play: the whole record, or only the highlighted period. Without a
+     * highlight the path builds up from nothing; with one, the rest of the
+     * record stays as faint context and the highlight itself builds up. */
+    var player = Player(panel, {
+      ready: function () { return !!data; },
+      range: function () {
+        var k = data.play.step;
+        return highlight ? { a: highlight.i0 * k, b: highlight.i1 * k } : { a: 0, b: data.loop.x.length - 1 };
+      },
+      unit: function () { return data.play.unit; },
+      label: function (i) {
+        var m = Math.floor(i / data.play.step);
+        return data.period_labels[m] + (m >= data.provisional_from ? ' (provisional)' : '');
+      },
+      enter: function () {
+        drawPlaying(loop, paint(data.figures.phase, themeName()), function (m) {
+          return m.role === 'recent' || m.role === 'now' || m.role === 'hover' || (m.role === 'history' && !highlight);
+        }, function (an) { return an.name === 'now'; });
+      },
+      frame: function (i, a) {
+        applyFrames(loop, [playFrame(loop, data.loop, i, a, {
+          split: data.provisional_from * data.play.step, tail: data.play.tail, step: data.play.step,
+          into: highlight ? { role: 'highlight' } : null
+        })]);
+        cursorOnTime(Math.floor(i / data.play.step));
+      },
+      leave: function () { render(); }
+    });
+    function playing() { return player && player.active(); }
 
     function render() {
       var name = themeName(), stem = 'enso-' + data.dataset.key;
@@ -272,6 +505,7 @@
       highlight = h;
       setParam('ev', h && h.event ? h.event : (h ? null : ''));
       applyHighlight();
+      if (player) player.sync();
     }
 
     function applyHighlight() {
@@ -314,20 +548,23 @@
     }
 
     function cursorOnTime(m) {
+      var f = { idx: [], x: [], y: [] };
       time.data.forEach(function (tr, i) {
         var mt = tr.meta || {};
         if (mt.role !== 'cursor') return;
         var src = time.data[traceIndex(time, { role: mt.of, row: mt.row })];
-        Plotly.restyle(time, { x: [m === null ? [] : [src.x[m]]], y: [m === null ? [] : [src.y[m]]] }, [i]);
+        f.idx.push(i); f.x.push(m === null ? [] : [src.x[m]]); f.y.push(m === null ? [] : [src.y[m]]);
       });
+      applyFrames(time, [f]);
     }
 
     function bindOnce() {
       if (bound) return;
       bound = true;
-      loop.on('plotly_hover', function (ev) { var m = hoverIndex(ev, ['hover']); if (m !== null) cursorOnTime(m); });
-      loop.on('plotly_unhover', function () { cursorOnTime(null); });
-      time.on('plotly_hover', function (ev) { var m = hoverIndex(ev, ['series', 'anomaly']); if (m !== null) cursorOnLoop(m); });
+      // While playing, the time cursor follows the dot, not the mouse.
+      loop.on('plotly_hover', function (ev) { var m = hoverIndex(ev, ['hover']); if (m !== null && !playing()) cursorOnTime(m); });
+      loop.on('plotly_unhover', function () { if (!playing()) cursorOnTime(null); });
+      time.on('plotly_hover', function (ev) { var m = hoverIndex(ev, ['series', 'anomaly']); if (m !== null && !playing()) cursorOnLoop(m); });
       time.on('plotly_unhover', function () { cursorOnLoop(null); });
 
       time.on('plotly_selected', function (ev) {
@@ -347,11 +584,17 @@
       });
       var clear = $(panel, '[data-action="clear"]');
       if (clear) clear.addEventListener('click', function () { setHighlight(null); });
-      themeListeners.push(function () { if (data) render(); });
+      themeListeners.push(function () { if (data) render().then(function () { if (player) player.sync(); }); });
     }
 
     return {
       update: function (json) {
+        // Playing on: carry on from the same month in the new dataset.
+        var keep = null;
+        if (playing()) {
+          var k0 = data.play.step, at = player.position();
+          keep = { period: data.periods[Math.floor(at / k0)], frac: at % k0 };
+        }
         data = json;
         if (pending !== null) {           // first load: event from the URL or the page default
           highlight = eventHighlight(pending);
@@ -365,16 +608,49 @@
         fillFields(panel, data);
         var state = $(panel, '.now__state');
         if (state && data.now) state.dataset.rising = String(data.now.rising);
-        return render();
+        return render().then(function () {
+          var m = keep ? data.periods.indexOf(keep.period) : -1;
+          if (player) player.sync(m >= 0 ? m * data.play.step + keep.frac : null);
+        });
       }
     };
   };
 
-  /* trajectory-linked: a model trajectory and its time series, linked by hover. */
+  /* trajectory-linked: a model trajectory and its time series, linked by
+   * hover, and played through time like the observed loops. */
   RENDERERS['trajectory-linked'] = function (panel) {
     var loop = $(panel, '[data-plot="phase"]');
     var time = $(panel, '[data-plot="time"]');
-    var data = null, bound = false;
+    var data = null, path = null, names = null, bound = false;
+
+    function timeCursor(m) {
+      var f = { idx: [], x: [], y: [] };
+      time.data.forEach(function (tr, i) {
+        var mt = tr.meta || {};
+        if (mt.role !== 'cursor') return;
+        var src = time.data[traceIndex(time, { role: 'series', row: mt.row })];
+        f.idx.push(i); f.x.push(m === null ? [] : [src.x[m]]); f.y.push(m === null ? [] : [src.y[m]]);
+      });
+      applyFrames(time, [f]);
+    }
+
+    var player = Player(panel, {
+      ready: function () { return !!path; },
+      range: function () { return { a: 0, b: path.x.length - 1 }; },
+      unit: function () { return data.play.unit; },
+      label: function (i) { return names[Math.floor(i / data.play.step)]; },
+      enter: function () {
+        drawPlaying(loop, paint(data.figures.phase, themeName()), function (m) {
+          return m.role === 'history' || m.role === 'hover';
+        }, function () { return false; });
+      },
+      frame: function (i, a) {
+        applyFrames(loop, [playFrame(loop, path, i, a, { tail: data.play.tail })]);
+        timeCursor(Math.floor(i / data.play.step));
+      },
+      leave: function () { render(); }
+    });
+    function playing() { return player && player.active(); }
 
     function render() {
       var name = themeName(), stem = 'duffing-' + data.key;
@@ -389,19 +665,9 @@
       bound = true;
       loop.on('plotly_hover', function (ev) {
         var m = hoverIndex(ev, ['hover']);
-        if (m === null) return;
-        time.data.forEach(function (tr, i) {
-          var mt = tr.meta || {};
-          if (mt.role !== 'cursor') return;
-          var src = time.data[traceIndex(time, { role: 'series', row: mt.row })];
-          Plotly.restyle(time, { x: [[src.x[m]]], y: [[src.y[m]]] }, [i]);
-        });
+        if (m !== null && !playing()) timeCursor(m);
       });
-      loop.on('plotly_unhover', function () {
-        time.data.forEach(function (tr, i) {
-          if ((tr.meta || {}).role === 'cursor') Plotly.restyle(time, { x: [[]], y: [[]] }, [i]);
-        });
-      });
+      loop.on('plotly_unhover', function () { if (!playing()) timeCursor(null); });
       time.on('plotly_hover', function (ev) {
         var m = hoverIndex(ev, ['series']);
         if (m === null) return;
@@ -409,10 +675,23 @@
         setXY(loop, { role: 'cursor' }, [hv.x[m]], [hv.y[m]]);
       });
       time.on('plotly_unhover', function () { setXY(loop, { role: 'cursor' }, [], []); });
-      themeListeners.push(function () { if (data) render(); });
+      themeListeners.push(function () { if (data) render().then(function () { if (player) player.sync(); }); });
     }
 
-    return { update: function (json) { data = json; fillFields(panel, data); return render(); } };
+    return {
+      update: function (json) {
+        // Playing on: carry on from the same point of the new run (or its end).
+        var at = playing() ? player.position() : null;
+        data = json;
+        // The trajectory as one path: Python's per-cycle paths, joined.
+        path = joinPaths(data.figures.phase.data.filter(function (t) { return (t.meta || {}).role === 'history'; }));
+        names = find(data.figures.phase.data, function (t) { return (t.meta || {}).role === 'hover'; }).customdata;
+        fillFields(panel, data);
+        return render().then(function () {
+          if (player) player.sync(at === null ? null : Math.min(at, path.x.length - 1));
+        });
+      }
+    };
   };
 
   /* figure: one Python figure, plus text fields. */
@@ -482,6 +761,52 @@
     var state = null, highlight = null, bound = false;
     var pending = initialEvent();
 
+    /* One player for every chosen record, on the calendar in frame.json: at
+     * calendar point i each record shows its own loop point for that month.
+     * The model has no calendar: it stays drawn whole and does not move. */
+    function onCalendar(slot) {
+      var s = find(state.slots, function (x) { return x.slot === slot; });
+      return !!(s && s.data.calendar);
+    }
+    var player = Player(panel, {
+      ready: function () { return !!state; },
+      range: function () {
+        var f = state.frame, k = f.play.step;
+        var idx = highlight ? rangeToIndices(f.calendar, [highlight.from, highlight.to]) : null;
+        return idx ? { a: idx.i0 * k, b: idx.i1 * k } : { a: 0, b: (f.calendar.length - 1) * k };
+      },
+      unit: function () { return state.frame.play.unit; },
+      label: function (i) { return state.frame.calendar_labels[Math.floor(i / state.frame.play.step)]; },
+      enter: function () {
+        drawPlaying(loop, paint(figures().loop, themeName()), function (m) {
+          return m.role === 'hover' ||
+            (onCalendar(m.slot) && (m.role === 'recent' || m.role === 'now' || (m.role === 'history' && !highlight)));
+        }, function (an) { return onCalendar(an.name); });
+      },
+      frame: function (i, a) {
+        var f = state.frame, k = f.play.step, frames = [];
+        var cur = { idx: [], x: [], y: [] };
+        state.slots.forEach(function (s) {
+          var d = s.data;
+          if (!d.calendar) return;
+          var off = f.calendar.indexOf(d.periods[0]) * k;      // this record's first month on the calendar
+          var j = Math.min(i - off, d.loop.x.length - 1), from = Math.max(0, a - off);
+          frames.push(playFrame(loop, d.loop, j, from, {
+            split: d.provisional_from * k, tail: f.play.tail, step: k,
+            into: highlight ? { role: 'highlight' } : null
+          }, { slot: s.slot }));
+          var m = j >= from ? Math.floor(j / k) : -1;
+          var src = time.data[traceIndex(time, { role: 'series', slot: s.slot })];
+          var c = traceIndex(time, { role: 'cursor', slot: s.slot });
+          if (c >= 0) { cur.idx.push(c); cur.x.push(m >= 0 ? [src.x[m]] : []); cur.y.push(m >= 0 ? [src.y[m]] : []); }
+        });
+        applyFrames(loop, frames);
+        applyFrames(time, [cur]);
+      },
+      leave: function () { render(); }
+    });
+    function playing() { return player && player.active(); }
+
     function figures() {
       var loopFig = clone(state.frame.loop), timeFig = clone(state.frame.time);
       loopFig.data = []; timeFig.data = [];
@@ -490,7 +815,7 @@
       state.slots.forEach(function (s) {
         loopFig.data = loopFig.data.concat(slotTraces(s.data.traces.loop, s.slot));
         timeFig.data = timeFig.data.concat(slotTraces(s.data.traces.time, s.slot));
-        loopFig.layout.annotations.push(s.data.label_annotation);
+        loopFig.layout.annotations.push(Object.assign({}, s.data.label_annotation, { name: s.slot }));
         if (s.data.provisional_start && (!provFrom || s.data.provisional_start < provFrom)) provFrom = s.data.provisional_start;
       });
       var ext = unionExtent(state.slots);
@@ -548,6 +873,7 @@
       highlight = h;
       setParam('ev', h && h.event ? h.event : (h ? null : ''));
       applyHighlight();
+      if (player) player.sync();
     }
 
     function cursorAt(period) {
@@ -588,15 +914,16 @@
       });
       var clear = $(panel, '[data-action="clear"]');
       if (clear) clear.addEventListener('click', function () { setHighlight(null); });
-      themeListeners.push(function () { if (state) render(); });
+      themeListeners.push(function () { if (state) render().then(function () { if (player) player.sync(); }); });
     }
 
     return {
       load: function (values) {
+        var at = playing() ? player.position() : null;     // same calendar: carry on
         return slotData(values).then(function (s) {
           state = s;
           if (pending !== null) { highlight = eventHighlight(pending); pending = null; }
-          return render();
+          return render().then(function () { if (player) player.sync(at); });
         });
       }
     };

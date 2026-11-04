@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import control, page_controls %}
+{% from "_macros.html" import control, page_controls, player %}
 {% macro slot_key() %}
 <ul class="key key--slots" aria-label="Records">
   {% for s in ["A", "B", "C"] %}
@@ -24,7 +24,11 @@
   </div>
   <div class="linked">
     <div class="linked__loop">
-      <div class="plot plot--square" data-plot="phase" role="img" aria-label="Normalised phase loops of the chosen records"></div>
+      <div class="plot-frame">
+        <div class="plot plot--square" data-plot="phase" role="img" aria-label="Normalised phase loops of the chosen records"></div>
+        <div class="plot-stamp" data-player-stamp hidden></div>
+      </div>
+      {{ player(loops) }}
     </div>
     <div class="linked__side">
       {{ slot_key() }}

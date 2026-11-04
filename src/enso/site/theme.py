@@ -36,6 +36,8 @@ TOKENS = {
         "series": "#a9b0b9",      # time panel: full series, thin
         "anomaly": "#2b3139",     # time panel: filtered interannual anomaly, bold
         "points": "rgba(20, 23, 28, 0.55)",  # Poincaré section dots
+        # Playing: the path behind the moving dot, built up as it goes.
+        "trace": "rgba(74, 82, 93, 0.55)",
         "recent": "#d1332b",      # latest 12 months
         "highlight": "#1d63c9",   # event or dragged range
         "band": "rgba(29, 99, 201, 0.10)",
@@ -58,6 +60,7 @@ TOKENS = {
         "series": "#5a616b",
         "anomaly": "#d4d8dd",
         "points": "rgba(231, 233, 236, 0.55)",
+        "trace": "rgba(170, 178, 188, 0.50)",
         "recent": "#e8524a",
         "highlight": "#4a8fe8",
         "band": "rgba(74, 143, 232, 0.16)",
@@ -79,6 +82,7 @@ ROLES = {
     "points": {"marker": "points"},
     "dot": {"marker": "points", "ring": "bg"},   # Compare section dots (slot colour)
     "highlight": {"line": "highlight"},
+    "trace": {"line": "trace"},
     "recent": {"line": "recent", "marker": "recent"},
     "now": {"marker": "recent", "ring": "bg"},
     "cursor": {"marker": "bg", "ring": "cursor"},

@@ -24,11 +24,12 @@ import math
 import shutil
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from enso import series
+from enso import series, status
 from enso.config import DOCS_DIR, Config, load_config
 from enso.site import theme
 from enso.site.pages import all_pages
@@ -59,13 +60,29 @@ def _write_json(path: Path, obj) -> int:
     return len(text.encode("utf-8"))
 
 
+def _day(iso: str) -> str:
+    d = date.fromisoformat(iso)
+    return f"{d.day} {d:%b %Y}"
+
+
 def _footer(cfg: Config) -> dict:
     fetched = sorted({series.read(d.key).fetched for d in cfg.datasets})
+    # Per group, the oldest "last checked" date of its datasets (data/status).
+    days: dict[str, list[str]] = {}
+    for d in cfg.datasets:
+        day = status.read(d.source["type"])["datasets"].get(d.key, {}).get("checked", "")
+        days.setdefault(d.group.label, []).append(day)
+    parts = []
+    for i, (label, group_days) in enumerate(days.items()):
+        name = label if i == 0 else label[0].lower() + label[1:]
+        oldest = min(group_days)          # "" (never recorded) sorts first
+        parts.append(f"{name} {_day(oldest) if oldest else 'never recorded'}")
     f = cfg.filter
     return {
         "filter": f"Fourier low-pass, HN1 = {f.HN1:g}, HN2 = {f.HN2:g} "
                   f"(full periods under about {2 * f.HN2:g} to {2 * f.HN1:g} months removed)",
-        "fetched": fetched[-1] if fetched else "",
+        "fetched": _day(fetched[-1]) if fetched else "unknown",
+        "checked": ", ".join(parts),
     }
 
 

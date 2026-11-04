@@ -56,6 +56,20 @@ class Control:
         return list(out.items())
 
 
+@dataclass(frozen=True)
+class Player:
+    """Play, pause, a position slider and a speed choice for a panel's
+    animation. The browser only steps through arrays Python wrote; this sets
+    the speeds offered, as units (months, forcing cycles) per second."""
+    speeds: list[Option]    # value: units per second
+    default: str
+    unit: str               # what one unit is, for the slider's label ("month")
+
+    def __post_init__(self):
+        if self.default not in [o.value for o in self.speeds]:
+            raise ValueError(f"player: default speed {self.default!r} is not offered")
+
+
 @dataclass
 class Panel:
     id: str
@@ -66,6 +80,7 @@ class Panel:
     controls: list[Control] = field(default_factory=list)
     caption: str = ""
     files: Callable[[], dict[str, Callable[[], dict]]] | None = None
+    player: Player | None = None     # an animation through time
 
     def placeholders(self) -> list[str]:
         return [name for _, name, _, _ in string.Formatter().parse(self.data) if name]

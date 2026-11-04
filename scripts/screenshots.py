@@ -1,7 +1,10 @@
 """Screenshot the built site at desktop and phone width, light and dark.
 
     python scripts/screenshots.py OUTDIR [--page index.html] [--query "ds=callao"]
-           [--event 1997-98]
+           [--event 1997-98] [--seek 1330]
+
+--seek stops the animation at that loop point (as if Play had run to it and
+been paused), so a playing frame can be captured the same way every time.
 
 Serves docs/ on a local port, so it needs no web server. Needs Playwright
 with Chromium (pip install playwright && python -m playwright install chromium).
@@ -39,6 +42,8 @@ def main() -> None:
     ap.add_argument("--query", default="")
     ap.add_argument("--event", default="", help="click this event button first")
     ap.add_argument("--hover", action="store_true", help="hover the time series at 1998")
+    ap.add_argument("--seek", type=int, default=None,
+                    help="show the animation paused at this loop point (data.play units)")
     ap.add_argument("--suffix", default="")
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -59,6 +64,9 @@ def main() -> None:
                     page.wait_for_selector("html[data-ready='true']", timeout=30000)
                     if args.event:
                         page.click(f"[data-event='{args.event}']")
+                    if args.seek is not None:
+                        page.evaluate("""(v) => { const s = document.querySelector('[data-player-scrub]');
+                          s.value = v; s.dispatchEvent(new Event('input')); }""", args.seek)
                     if args.hover:
                         box = page.locator("[data-plot='time'] .nsewdrag").first.bounding_box()
                         page.mouse.move(box["x"] + 5, box["y"] + 5)

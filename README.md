@@ -5,7 +5,11 @@ drawn as phase diagrams: each filtered record against its own rate of change.
 
 Pages: **Phase diagrams** (one record, loop linked to its time series),
 **Compare** (up to three records on one normalised plane) and **Duffing**
-(precomputed runs of a forced double-well model). How every number is made:
+(precomputed runs of a forced double-well model). Each loop has a **Play**
+button: a dot runs along it with a 12-month tail (one forcing cycle on
+Duffing), the path builds up behind it and the time panel follows; with an
+El Niño highlighted, only that event plays. Compare plays all its records
+on one calendar. How every number is made:
 [METHODS.md](METHODS.md).
 
 Successor to [el_nino](https://github.com/uferreira/el_nino), with a simpler
@@ -18,7 +22,7 @@ draw the JSON that Python writes, with a small `site.js`.
 config.yaml            filter, datasets, events: the only settings file
 data/series/*.csv      monthly records, committed (fetch writes, build reads)
 data/model/*.npz       Duffing runs, committed (python -m enso.model writes, build reads)
-data/status/*.json     date of each dataset's last successful download (sea level)
+data/status/*.json     date of each dataset's last successful download (shown as "last checked")
 src/enso/
   download.py          NOAA and UHSLC downloads (ported from el_nino)
   fourier.py           Fourier low-pass filter and derivative (ported)
@@ -27,7 +31,7 @@ src/enso/
   model.py             python -m enso.model: Duffing runs -> data/model
   fetch.py             python -m enso.fetch: download -> data/series
   publish.py           python -m enso.publish: fetch, build, test, commit, push (both updaters)
-  status.py            python -m enso.status: is a source being updated?
+  status.py            python -m enso.status: is a source being updated? is the site behind it?
   build.py             python -m enso.build: data/series -> docs/
   site/
     theme.py           the palette: tokens.css and Plotly templates, light and dark
@@ -55,6 +59,8 @@ python scripts/hindcast.py                 # evidence for the provisional zone (
 python scripts/lyapunov_sweep.py           # lambda1 against FA, El Niño fit (5 min; pip install -e ".[scripts]")
 python -m pytest                           # tests
 python scripts/screenshots.py screenshots  # desktop/phone x light/dark PNGs
+python scripts/screenshots.py screenshots --seek 1330 --suffix=-play   # an animation frame (Jan 1998)
+python -m enso.status --behind noaa_sst    # exit 1 if NOAA has a month the site lacks
 ```
 
 A dataset whose new download would end earlier than the committed record is
@@ -85,7 +91,7 @@ Two writers share `main`, every 5 days each:
 
 | Records | Where | How |
 |---|---|---|
-| SST (NOAA CPC) | GitHub Actions, `.github/workflows/update-sst.yml`, 06:00 UTC on days 1, 6, 11, 16, 21, 26 and 31, and on demand | `python -m enso.publish --source-type noaa_sst` |
+| SST (NOAA CPC) | GitHub Actions, `.github/workflows/update-sst.yml`, 06:00 UTC on days 1, 4, 6, 11, 16, 21, 26 and 31 (NOAA posts the new month around the 3rd), and on demand | `python -m enso.publish --source-type noaa_sst --status` |
 | Sea level (UHSLC) | this PC, Windows Task Scheduler (UHSLC drops connections from GitHub-hosted runners) | `scripts\update_sea_level.ps1`, which runs `python -m enso.publish --source-type uhslc --status` |
 
 `enso.publish` pulls, downloads its own source, rebuilds `docs/`, runs the
@@ -98,12 +104,20 @@ and pushes once more, and otherwise stops with exit code 2 and
 `PUBLISH FAILED` in the log. A failed download keeps the committed record
 (exit code 1; the rest is still published).
 
-**Staleness check.** Every sea-level run writes `data/status/uhslc.json`
-(the date each station was last downloaded), so it commits every 5 days
-even with no new data. The SST workflow runs
-`python -m enso.status --check uhslc --max-age-days 15` and turns red when
-any station is older than 15 days: the PC has not run, or a station keeps
-failing.
+**Staleness checks.** Both writers run with `--status`, which writes
+`data/status/<source type>.json` (the date each dataset was last downloaded),
+so each commits every run even with no new data. The site shows those dates:
+the Phase readout says "NOAA CPC last checked 4 Nov 2026" (or UHSLC), and
+every footer gives the oldest date per group. A date that stops moving means
+an updater has stopped. The SST workflow then runs two checks, both even
+when the update failed:
+
+- `python -m enso.status --behind noaa_sst` downloads the last row of
+  NOAA's sstoi.indices and turns the run red when NOAA has a later month
+  than `docs/` serves: the update did not bring it in.
+- `python -m enso.status --check uhslc --max-age-days 15` turns it red when
+  any sea-level station is older than 15 days: the PC has not run, or a
+  station keeps failing.
 
 ### Sea-level task: setup
 

@@ -65,3 +65,27 @@ def nice_step(span: float, target: int = 4) -> float:
         if m * mag >= raw:
             return float(m * mag)
     return float(10 * mag)
+
+
+def play_traces(provisional: bool = True, tail_dots: bool = True, trace_opacity: float | None = None,
+                dash: str = "4px,3px") -> list[go.Scatter]:
+    """The empty traces an animation fills (meta.play): the path drawn so far
+    ("trace"), the tail just behind the dot ("recent"), the tail's monthly
+    points, and the dot ("now"). The browser only slices arrays Python wrote
+    into them. ``provisional`` adds dashed twins for the provisional end."""
+    out = []
+    kinds = (False, True) if provisional else (False,)
+    for prov in kinds:
+        out.append(go.Scatter(x=[], y=[], mode="lines", opacity=trace_opacity,
+                              line={"width": 1.25, **({"dash": dash} if prov else {})}, hoverinfo="skip",
+                              meta={"role": "trace", "provisional": prov, "play": True}))
+    for prov in kinds:
+        out.append(go.Scatter(x=[], y=[], mode="lines",
+                              line={"width": 2.25, **({"dash": dash} if prov else {})}, hoverinfo="skip",
+                              meta={"role": "recent", "provisional": prov, "play": True}))
+    if tail_dots:
+        out.append(go.Scatter(x=[], y=[], mode="markers", marker={"size": 5}, hoverinfo="skip",
+                              meta={"role": "recent", "dots": True, "play": True}))
+    out.append(go.Scatter(x=[], y=[], mode="markers", marker={"size": 12, "line": {"width": 2}},
+                          hoverinfo="skip", meta={"role": "now", "play": True}))
+    return out

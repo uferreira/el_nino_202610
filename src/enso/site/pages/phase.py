@@ -17,16 +17,19 @@ from datetime import date
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from enso import series
+from enso import series, status
 from enso.config import Config, Dataset
 from enso.phasespace import PhaseSeries, compute, month_label
-from enso.site.figures import export, fmt, history_paths, month_after, nice_step, padded, rnd
-from enso.site.registry import Control, Option, Page, Panel
+from enso.site.figures import (export, fmt, history_paths, month_after, nice_step, padded,
+                                play_traces, rnd)
+from enso.site.registry import Control, Option, Page, Panel, Player
 
 RECENT_MONTHS = 12
 DASH = "4px,3px"
 # Decimals kept in the JSON and shown to readers, per unit: (value, rate).
 DECIMALS = {"°C": (3, 4), "mm": (1, 2)}
+# Who publishes each source type, for "<source> last checked <date>".
+SOURCE_NAMES = {"noaa_sst": "NOAA CPC", "uhslc": "UHSLC"}
 SHOW = {"°C": (2, 2), "mm": (0, 1)}
 
 
@@ -103,6 +106,8 @@ def phase_figure(ps: PhaseSeries, cfg: Config) -> dict:
     fig.add_scatter(x=[round(float(ps.T[-1]), dv)], y=[round(float(ps.V[-1]), dr)],
                     mode="markers", marker={"size": 12, "line": {"width": 2}},
                     hoverinfo="skip", meta={"role": "now"})
+    # Filled while playing: the path so far, the last 12 months behind the dot, the dot.
+    fig.add_traces(play_traces(dash=DASH))
     fig.add_scatter(x=[], y=[], mode="markers", marker={"size": 13, "line": {"width": 2}},
                     hoverinfo="skip", meta={"role": "cursor"})
     # Invisible monthly markers: the hover targets (bigger than the line).
@@ -129,7 +134,7 @@ def phase_figure(ps: PhaseSeries, cfg: Config) -> dict:
     right_side = float(ps.T[-1]) > xr[0] + 0.7 * (xr[1] - xr[0])
     annotations = [{
         "x": float(ps.T[-1]), "y": float(ps.V[-1]), "xref": "x", "yref": "y",
-        "text": month_label(ps.periods[-1]), "showarrow": False,
+        "name": "now", "text": month_label(ps.periods[-1]), "showarrow": False,
         "xanchor": "right" if right_side else "left", "yanchor": "bottom",
         "xshift": -8 if right_side else 8, "yshift": 4,
     }]
@@ -295,6 +300,10 @@ def readout(ps: PhaseSeries, cfg: Config) -> dict:
         "note": " ".join(notes),
         "through": month_label(last, short=False),
         "updated": f"{fetched.day} {fetched:%b %Y}" if fetched else "unknown",
+        # Last successful download (data/status), new month or not: a date
+        # that stops moving means the update has stopped running.
+        "source_name": SOURCE_NAMES.get(ds.source["type"], ds.source["type"]),
+        "checked": status.checked_label(ds.source["type"], ds.key) or "never recorded",
     }
 
 
@@ -335,6 +344,9 @@ def build_dataset(cfg: Config, key: str) -> dict:
         "loop": {"x": rnd(ps.T, dv), "y": rnd(ps.V, dr)},
         "now": readout(ps, cfg),
         "events": events(ps, cfg),
+        # Animation, in loop points: per speed unit (a month), per sample (a month),
+        # and the tail behind the dot (12 months).
+        "play": {"unit": ps.ndots, "step": ps.ndots, "tail": RECENT_MONTHS * ps.ndots},
         "figures": {"phase": phase_figure(ps, cfg), "time": time_figure(ps, cfg)},
     }
 
@@ -379,11 +391,25 @@ loop and shaded in the time panel (METHODS.md in the repository explains
 how long it is and why).</p>
 <p>Drag across the time series to highlight a period; double-click or Clear
 removes it. Hover either view to find the same month in the other.</p>
+<p>Play draws the loop through time: a dot moves month by month, the last
+12 months trail behind it in red, and the path it has drawn builds up
+behind. The time panel marks the same month. With an El Niño (or a dragged
+period) highlighted, Play runs only that period. The slider moves to any
+month; the reset button returns to the whole record.</p>
 """
+
+
+# Animation speeds, in months per second. 6: the whole record in under two
+# minutes, an El Niño in about three seconds.
+MONTH_SPEEDS = Player(
+    speeds=[Option(str(v), f"{v} months/s") for v in (3, 6, 12, 24, 48)],
+    default="6", unit="month",
+)
 
 
 def page(cfg: Config) -> Page:
     panel = Panel(
+        player=MONTH_SPEEDS,
         id="phase",
         kind="phase-linked",
         title="Phase diagram",

@@ -16,7 +16,7 @@ from enso.site.registry import Control, Option
 
 CFG = load_config()
 P = CFG.filter.provisional_months
-ROLES_LOOP = {"history", "highlight", "recent", "now", "cursor", "hover"}
+ROLES_LOOP = {"history", "highlight", "trace", "recent", "now", "cursor", "hover"}
 ROLES_TIME = {"series", "anomaly", "highlight", "recent", "now", "cursor"}
 
 
@@ -247,13 +247,116 @@ def test_duffing_section_axes_are_the_union_of_all_phases(site):
 def test_compare_time_strip_is_the_normalised_anomaly_without_the_model(site):
     import numpy as np
     callao = _load(site, "data/compare/callao.json")
-    (series_t, _) = callao["traces"]["time"]
+    series_t = callao["traces"]["time"][0]
     y = np.array(series_t["y"])
     assert abs(y.mean()) < 0.05 and y.std(ddof=1) == pytest.approx(1, abs=1e-3)
     ps = phase.phase_series(CFG, "callao")
     np.testing.assert_allclose(y, ps.anomaly / ps.anomaly.std(ddof=1), atol=1e-3)
     model_rec = _load(site, "data/compare/model.json")
     assert model_rec["traces"]["time"] == [] and model_rec["calendar"] is False
+
+
+# ---- animation --------------------------------------------------------------
+
+def _play(fig):
+    return [t for t in fig["data"] if t["meta"].get("play")]
+
+
+def _play_kinds(fig):
+    return sorted((t["meta"]["role"], str(t["meta"].get("provisional")), bool(t["meta"].get("dots")))
+                  for t in _play(fig))
+
+
+@pytest.mark.parametrize("key", [d.key for d in CFG.datasets])
+def test_phase_loop_has_an_empty_play_layer_above_the_record(site, key):
+    """Path so far, tail (solid and dashed), tail months and dot: empty until
+    the browser fills them by slicing data.loop."""
+    data = _phase(site, key)
+    fig = data["figures"]["phase"]
+    assert _play_kinds(fig) == sorted([("trace", "False", False), ("trace", "True", False),
+                                       ("recent", "False", False), ("recent", "True", False),
+                                       ("recent", "None", True), ("now", "None", False)])
+    assert all(t["x"] == [] and t["y"] == [] for t in _play(fig))
+    assert all("dash" in t["line"] for t in _play(fig) if t["meta"].get("provisional"))
+    roles = [t["meta"]["role"] for t in fig["data"]]
+    first_play = next(i for i, t in enumerate(fig["data"]) if t["meta"].get("play"))
+    assert roles.index("history") < first_play < roles.index("cursor")
+    k = data["ndots"]
+    assert data["play"] == {"unit": k, "step": k, "tail": 12 * k}
+    # The "now" label is named, so playing can hide it.
+    assert [a.get("name") for a in fig["layout"]["annotations"]].count("now") == 1
+
+
+def test_duffing_trajectory_has_a_play_layer_and_one_joinable_path(site):
+    m = CFG.models["duffing"]
+    for preset in m["presets"]:
+        st = model.settings(CFG, preset)
+        data = _load(site, f"data/duffing/trajectory/{preset}/1.json")
+        fig = data["figures"]["phase"]
+        assert _play_kinds(fig) == sorted([("trace", "False", False), ("recent", "False", False),
+                                           ("now", "None", False)])
+        per_cycle = st["samples_per_cycle"] * st["ndots"]
+        assert data["play"] == {"unit": per_cycle, "step": st["ndots"], "tail": per_cycle}
+        # site.js joins the per-cycle history paths into the trajectory it plays.
+        paths = [t for t in fig["data"] if t["meta"]["role"] == "history"]
+        joined = paths[0]["x"] + [v for t in paths[1:] for v in t["x"][1:]]
+        run = model.load(CFG, preset, 1.0)
+        assert len(joined) == len(run.traj_x)
+        assert joined[::st["ndots"]] == next(t for t in fig["data"] if t["meta"]["role"] == "hover")["x"]
+
+
+def test_compare_plays_observed_records_on_one_calendar(site):
+    frame = _load(site, "data/compare/frame.json")
+    cal = frame["calendar"]
+    assert len(cal) == len(frame["calendar_labels"])
+    assert all(phase.month_label(q) == lab for q, lab in zip(cal, frame["calendar_labels"]))
+    # Consecutive months, from the earliest observed month to the latest.
+    for a, b in zip(cal, cal[1:]):
+        y, m = map(int, a.split("-"))
+        assert b == (f"{y}-{m + 1:02d}" if m < 12 else f"{y + 1}-01")
+    k = CFG.filter.NDOTS
+    assert frame["play"] == {"unit": k, "step": k, "tail": 12 * k}
+    for d in CFG.datasets:
+        rec = _load(site, f"data/compare/{d.key}.json")
+        assert rec["periods"][0] in cal and rec["periods"][-1] in cal
+        assert len([t for t in rec["traces"]["loop"] if t["meta"].get("play")]) == 6
+        assert [t["meta"]["role"] for t in rec["traces"]["time"]] == ["series", "highlight", "cursor"]
+    assert cal[0] == min(_load(site, f"data/compare/{d.key}.json")["periods"][0] for d in CFG.datasets)
+    # The model has no calendar: nothing of it plays.
+    rec = _load(site, "data/compare/model.json")
+    assert not [t for t in rec["traces"]["loop"] if t["meta"].get("play")]
+
+
+@pytest.mark.parametrize("name,default", [("index.html", "6"), ("compare.html", "6"), ("duffing.html", "1")])
+def test_pages_with_a_loop_have_a_player(site, name, default):
+    html = _html(site, name)
+    assert html.count("data-player-toggle") == 1
+    for attr in ("data-player-reset", "data-player-scrub", "data-player-speed", "data-player-stamp"):
+        assert attr in html
+    speed = re.search(r"<select data-player-speed.*?</select>", html, re.S).group(0)
+    assert re.search(rf'value="{re.escape(default)}" selected', speed)
+    assert "data-control" not in speed        # not a data choice, not in the URL
+
+
+# ---- last checked ------------------------------------------------------------
+
+@pytest.mark.parametrize("key", ["nino12", "callao"])
+def test_readout_names_the_source_and_when_it_was_last_checked(site, key):
+    from enso import status
+    now = _phase(site, key)["now"]
+    ds = CFG.dataset(key)
+    assert now["source_name"] == {"noaa_sst": "NOAA CPC", "uhslc": "UHSLC"}[ds.source["type"]]
+    day = status.read(ds.source["type"])["datasets"][key]["checked"]
+    d = __import__("datetime").date.fromisoformat(day)
+    assert now["checked"] == f"{d.day} {d:%b %Y}"
+    assert 'data-field="now.checked"' in _html(site)
+
+
+def test_footer_shows_when_each_source_was_last_checked(site):
+    footer = re.search(r'<footer class="site-footer">.*?</footer>', _html(site), re.S).group(0)
+    assert "last checked for new data: Sea surface temperature " in footer
+    assert ", sea level " in footer
+    assert "never recorded" not in footer
 
 
 # ---- whole site -----------------------------------------------------------

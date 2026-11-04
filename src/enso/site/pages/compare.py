@@ -23,8 +23,8 @@ import plotly.graph_objects as go
 from enso import model
 from enso.config import Config
 from enso.phasespace import MONTH_NAMES, month_label
-from enso.site.figures import MINUS, export, history_paths, month_after, padded, rnd
-from enso.site.pages.phase import DASH, RECENT_MONTHS, first_provisional, phase_series
+from enso.site.figures import MINUS, export, history_paths, month_after, padded, play_traces, rnd
+from enso.site.pages.phase import DASH, MONTH_SPEEDS, RECENT_MONTHS, first_provisional, phase_series
 from enso.site.registry import Control, Option, Page, Panel
 
 MODEL_KEY = "model"
@@ -117,6 +117,8 @@ def loop_traces(r: Norm) -> list[dict]:
             go.Scatter(x=[round(float(r.x[-1]), dx)], y=[round(float(r.y[-1]), dy)], mode="markers",
                        marker={"size": 11, "line": {"width": 2}}, hoverinfo="skip", meta={"role": "now"}),
         ]
+        # Filled while playing (the model has no calendar, so it does not play).
+        out += play_traces(trace_opacity=0.6, dash=DASH)
         out = [t if isinstance(t, dict) else t.to_plotly_json() for t in out]
     out.append(go.Scatter(x=[], y=[], mode="markers", marker={"size": 12, "line": {"width": 2}},
                           hoverinfo="skip", meta={"role": "cursor"}).to_plotly_json())
@@ -151,6 +153,9 @@ def time_traces(r: Norm) -> list[dict]:
                    meta={"role": "series"}).to_plotly_json(),
         go.Scatter(x=[], y=[], mode="lines", line={"width": 3}, hoverinfo="skip",
                    meta={"role": "highlight"}).to_plotly_json(),
+        # The month being played.
+        go.Scatter(x=[], y=[], mode="markers", marker={"size": 9, "line": {"width": 2}},
+                   hoverinfo="skip", meta={"role": "cursor"}).to_plotly_json(),
     ]
 
 
@@ -233,8 +238,17 @@ def build_frame(cfg: Config, records: list[Norm]) -> dict:
         running = " (running)" if ev.end is None else ""
         events.append({"label": ev.label, "start": ev.start, "end": end,
                        "range": f"{month_label(ev.start)} to {month_label(end)}{running}"})
+    # One calendar for the shared animation: every month any observed record has.
+    k = timed[0].ndots
+    if any(r.ndots != k for r in timed):
+        raise ValueError("Compare's animation needs every record with the same ndots")
+    calendar = [first]
+    while calendar[-1] < last:
+        calendar.append(month_after(calendar[-1], 1))
     return {"loop": export(loop), "time": export(time), "section": export(section),
-            "time_end": time_end, "events": events}
+            "time_end": time_end, "events": events,
+            "calendar": calendar, "calendar_labels": [month_label(q) for q in calendar],
+            "play": {"unit": k, "step": k, "tail": RECENT_MONTHS * k}}
 
 
 def files(cfg: Config) -> dict:
@@ -281,6 +295,11 @@ removed) divided by that anomaly's own standard deviation, so El Niño events
 line up across records whatever their units or seasonal swing. The model has
 no real calendar, so it is on the loops and the section but not on the time
 strip.</p>
+<p>Play runs every chosen record on the same calendar: one dot per record,
+each at the same month, with its last 12 months trailing behind and its
+path building up; the time strip marks that month on each record. A
+highlighted El Niño or dragged period plays alone. The model has no
+calendar, so it stays drawn whole and does not move.</p>
 <p>The annual section keeps one point per year, in the chosen calendar month.
 Records that share a seasonal rhythm cluster in the same part of the plane
 for the same month.</p>
@@ -291,7 +310,7 @@ def page(cfg: Config) -> Page:
     from enso.site.pages.phase import default_event
     months = [Option(str(i), name) for i, name in enumerate(MONTH_NAMES)]
     loops = Panel(id="compare", kind="compare-linked", title="Loops on a normalised plane",
-                  data="data/compare/{a}.json", files=lambda: files(cfg))
+                  data="data/compare/{a}.json", files=lambda: files(cfg), player=MONTH_SPEEDS)
     section = Panel(id="compare-section", kind="compare-section", title="Annual section",
                     data="data/compare/{a}.json", files=lambda: {},
                     controls=[Control("month", "Month", months, "0", play=True)],

@@ -160,6 +160,46 @@ select {
 .icon-button .icon-pause { display: none; }
 .icon-button[aria-pressed="true"] .icon-play { display: none; }
 .icon-button[aria-pressed="true"] .icon-pause { display: block; }
+.icon-button:disabled { color: var(--border); background: var(--bg); cursor: default; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ---- Player: play through time under a loop --------------------------- */
+
+.player {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.player__scrub { flex: 1 1 140px; min-width: 0; margin: 0; accent-color: var(--accent); }
+.player__when {
+  min-width: 13ch;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.player__speed select { min-width: 0; width: auto; }
+.plot-frame { position: relative; }
+/* The month being played, in the plot's top-left corner (clear of the axes). */
+.plot-stamp {
+  position: absolute;
+  left: 72px;
+  top: 34px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  pointer-events: none;
+}
 
 .link-button {
   padding: 0;

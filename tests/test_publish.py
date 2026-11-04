@@ -158,3 +158,57 @@ def test_status_records_checked_dates_and_flags_stale_datasets(tmp_path):
     assert [p.split(":")[0] for p in status.stale("uhslc", keys, 15, "2026-11-20", tmp_path)] == ["palau"]
     stale = status.stale("uhslc", keys, 15, "2026-11-22", tmp_path)
     assert [p.split(":")[0] for p in stale] == ["callao", "palau"]          # 16 days
+
+
+def test_checked_label_is_the_last_successful_download(tmp_path):
+    status.record("noaa_sst", [("nino12", "SAME   nino12"), ("nino3", "FAILED nino3: timeout")],
+                  day="2026-11-04", directory=tmp_path)
+    assert status.checked_label("noaa_sst", "nino12", tmp_path) == "4 Nov 2026"
+    assert status.checked_label("noaa_sst", "nino3", tmp_path) is None       # never succeeded
+
+
+SSTOI = """ YR   MON  NINO1+2  ANOM   NINO3    ANOM   NINO4    ANOM NINO3.4    ANOM
+ 2026   9   25.27    4.69   28.65    3.64   29.62    0.95   29.60    2.84
+ 2026  10   26.12    5.25   29.24    4.16   29.88    1.20   30.01    3.25
+"""
+
+
+def _site(tmp_path, ends):
+    import json
+    for key, last in ends.items():
+        p = tmp_path / "data" / "phase" / f"{key}.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"periods": ["2026-08", last]}), encoding="utf-8")
+    return tmp_path
+
+
+def test_behind_flags_a_month_noaa_has_and_the_site_lacks(tmp_path):
+    assert status.latest_in_sstoi(SSTOI) == "2026-10"
+    docs = _site(tmp_path, {"nino12": "2026-09", "nino3": "2026-10"})
+    problems = status.behind("2026-10", ["nino12", "nino3", "nino4"], docs)
+    assert [p.split(":")[0] for p in problems] == ["nino12", "nino4"]        # behind; missing
+    assert "2026-10" in problems[0] and "2026-09" in problems[0]
+    assert status.behind("2026-09", ["nino12", "nino3"], docs) == []
+    with pytest.raises(ValueError):
+        status.latest_in_sstoi("no data here\n")
+
+
+def test_behind_command_turns_red_when_noaa_is_ahead(monkeypatch, capsys):
+    """Against the committed docs/: red for a month the site lacks, green for its own."""
+    site_month = status.site_latest("nino12")
+    monkeypatch.setitem(status.UPSTREAM, "noaa_sst", lambda: "2099-01")
+    assert status.main(["--behind", "noaa_sst"]) == 1
+    assert "BEHIND nino12" in capsys.readouterr().out
+    monkeypatch.setitem(status.UPSTREAM, "noaa_sst", lambda: site_month)
+    assert status.main(["--behind", "noaa_sst"]) == 0
+
+
+def test_sst_workflow_runs_on_the_4th_records_its_check_and_goes_red_when_behind():
+    wf = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "update-sst.yml").read_text()
+    import re
+    cron = re.search(r"cron: '([^']+)'", wf).group(1).split()
+    assert cron[:2] == ["0", "6"]
+    assert "4" in cron[2].split(",") and "1" in cron[2].split(",")
+    assert "enso.publish --source-type noaa_sst --status" in wf
+    step = wf[wf.index("python -m enso.status --behind noaa_sst") - 200:]
+    assert "if: always()" in step[:200]

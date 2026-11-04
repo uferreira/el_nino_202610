@@ -28,3 +28,27 @@
 </div>
 {% endif %}
 {% endmacro %}
+
+{# Play, reset, position slider, month label and speed for a panel's animation.
+   site.js drives it; Python sets the speeds (registry.Player). #}
+{% macro player(panel) %}
+{% set p = panel.player %}
+<div class="player" data-player>
+  <button type="button" class="icon-button" data-player-toggle aria-pressed="false" aria-label="Play through time">
+    <svg class="icon-play" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
+    <svg class="icon-pause" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5h3v11H4zM9 2.5h3v11H9z" fill="currentColor"/></svg>
+  </button>
+  <button type="button" class="icon-button" data-player-reset aria-label="Stop and show everything again" title="Stop and show everything again" disabled>
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1" fill="currentColor"/></svg>
+  </button>
+  <input class="player__scrub" type="range" min="0" max="0" value="0" step="1" data-player-scrub aria-label="Position in time, by {{ p.unit }}">
+  <output class="player__when" data-player-label></output>
+  <label class="player__speed"><span class="visually-hidden">Speed</span>
+    <select data-player-speed aria-label="Speed">
+      {% for o in p.speeds %}
+      <option value="{{ o.value }}"{% if o.value == p.default %} selected{% endif %}>{{ o.label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+</div>
+{% endmacro %}

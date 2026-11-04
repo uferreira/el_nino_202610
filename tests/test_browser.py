@@ -215,3 +215,214 @@ def test_duffing_trajectory_hover_marks_the_time_series(browser, base_url):
     page.wait_for_timeout(300)
     assert page.evaluate(TRACE, ["phase", {"role": "cursor"}]) == 1
     assert errors == []
+
+
+# ---- Playing through time --------------------------------------------------------
+
+PLAY = """(extra) => {
+  const d = document.querySelector("[data-plot='phase']").data;
+  const f = (meta) => d.find(t => Object.entries({...meta, ...(extra || {})}).every(([k, v]) => t.meta[k] === v));
+  const dot = f({role: 'now', play: true});
+  const hist = d.filter(t => t.meta.role === 'history' && !t.meta.play && (!extra || !extra.slot || t.meta.slot === extra.slot));
+  const len = (m) => { const t = f(m); return t ? t.x.length : -1; };
+  return {
+    dot: dot && dot.x.length ? [dot.x[0], dot.y[0]] : null,
+    trace: len({role: 'trace', provisional: false, play: true}) + Math.max(len({role: 'trace', provisional: true, play: true}), 0),
+    highlight: len({role: 'highlight', provisional: false}),
+    tail: len({role: 'recent', provisional: false, play: true}),
+    historyHidden: hist.every(t => t.visible === false),    // removed or hidden while playing
+  };
+}"""
+
+TIME_CURSOR = """(meta) => {
+  const t = document.querySelector("[data-plot='time']").data
+    .find(t => Object.entries(meta).every(([k, v]) => t.meta[k] === v));
+  return t && t.x.length ? String(t.x[0]) : null;
+}"""
+
+
+def _state(page):
+    return page.get_attribute("[data-player]", "data-state")
+
+
+def _pos(page):
+    return int(page.input_value("[data-player-scrub]"))
+
+
+def _wait_pos(page, above, timeout=10000):
+    page.wait_for_function(f"+document.querySelector('[data-player-scrub]').value > {above}", timeout=timeout)
+
+
+def _seek(page, value):
+    page.evaluate("""(v) => { const s = document.querySelector('[data-player-scrub]');
+      s.value = v; s.dispatchEvent(new Event('input')); }""", value)
+
+
+def _loop_point(data, i):
+    return [data["loop"]["x"][i], data["loop"]["y"][i]]
+
+
+def test_playing_moves_the_dot_and_the_time_cursor(browser, base_url, site):
+    import json
+    data = json.loads((site / "data/phase/nino12.json").read_text(encoding="utf-8"))
+    page, errors = _open(browser, base_url + "index.html?ev=")
+    assert _state(page) == "idle" and page.is_hidden("[data-player-stamp]")
+    page.click("[data-player-toggle]")
+    assert _state(page) == "playing"
+    _wait_pos(page, 10)
+    before = page.evaluate(PLAY)
+    cursor_before = page.evaluate(TIME_CURSOR, {"role": "cursor", "row": "T"})
+    _wait_pos(page, _pos(page) + 15)
+    after = page.evaluate(PLAY)
+    assert after["dot"] != before["dot"]                            # the dot moves
+    assert after["trace"] > before["trace"] > 0                     # the path builds up behind it
+    assert 0 < after["tail"] <= data["play"]["tail"] + 1            # the tail stays 12 months long
+    assert after["historyHidden"]                                   # the whole record is not shown yet
+    assert page.evaluate(TIME_CURSOR, {"role": "cursor", "row": "T"}) != cursor_before   # time cursor follows
+    assert page.is_visible("[data-player-stamp]")
+
+    page.click("[data-player-toggle]")                              # pause
+    assert _state(page) == "paused"
+    i = _pos(page)
+    page.wait_for_timeout(300)
+    assert _pos(page) == i
+    assert page.evaluate(PLAY)["dot"] == _loop_point(data, i)        # the dot is Python's loop point
+    m = i // data["play"]["step"]
+    assert page.text_content("[data-player-label]") == data["period_labels"][m]
+    assert page.evaluate(TIME_CURSOR, {"role": "cursor", "row": "T"}).startswith(data["periods"][m])
+
+    page.click("[data-theme-toggle]")                               # a repaint keeps the frame
+    page.wait_for_timeout(300)
+    assert page.evaluate(PLAY)["dot"] == _loop_point(data, i)
+
+    page.click("[data-player-reset]")                               # back to the static view
+    assert _state(page) == "idle"
+    still = page.evaluate(PLAY)
+    assert still["dot"] is None and still["trace"] == 0 and not still["historyHidden"]
+    assert page.is_hidden("[data-player-stamp]")
+    assert errors == []
+
+
+def test_play_runs_only_the_highlighted_event(browser, base_url, site):
+    import json
+    data = json.loads((site / "data/phase/callao.json").read_text(encoding="utf-8"))
+    ev = next(e for e in data["events"] if e["label"] == "1997-98")
+    k = data["play"]["step"]
+    page, errors = _open(browser, base_url + "index.html?ds=callao&ev=")
+    page.click("[data-event='1997-98']")
+    page.select_option("[data-player-speed]", "48")
+    page.click("[data-player-toggle]")
+    page.wait_for_function("document.querySelector('[data-player]').dataset.state === 'paused'", timeout=10000)
+    scrub = page.locator("[data-player-scrub]")
+    assert int(scrub.get_attribute("min")) == ev["i0"] * k
+    assert int(scrub.get_attribute("max")) == _pos(page) == ev["i1"] * k     # stopped at the event's end
+    end = page.evaluate(PLAY)
+    assert end["dot"] == _loop_point(data, ev["i1"] * k)
+    assert end["highlight"] == (ev["i1"] - ev["i0"]) * k + 1        # the event drawn in full, nothing else
+    assert end["trace"] == 0 and not end["historyHidden"]            # the record stays as context
+    # Playing again starts at the event's first month.
+    page.select_option("[data-player-speed]", "3")
+    page.click("[data-player-toggle]")
+    page.wait_for_timeout(200)
+    assert ev["i0"] * k <= _pos(page) < ev["i0"] * k + 3 * k
+    # Clearing the event while playing carries on over the whole record.
+    page.click("[data-action='clear']")
+    assert _state(page) == "playing" and page.locator("[data-player-scrub]").get_attribute("min") == "0"
+    assert errors == []
+
+
+def test_changing_dataset_while_playing_keeps_the_month(browser, base_url):
+    page, errors = _open(browser, base_url + "index.html?ev=")
+    page.click("[data-player-toggle]")
+    _wait_pos(page, 40)
+    page.click("[data-player-toggle]")
+    month = page.text_content("[data-player-label]")
+    page.select_option("select[name='ds']", "callao")
+    _idle(page)
+    page.wait_for_timeout(200)
+    assert _state(page) == "paused"
+    assert page.text_content("[data-player-label]") == month
+    assert page.evaluate(PLAY)["dot"] is not None
+    assert errors == []
+
+
+def test_dragging_the_slider_moves_the_dot(browser, base_url, site):
+    import json
+    data = json.loads((site / "data/phase/nino34.json").read_text(encoding="utf-8"))
+    page, errors = _open(browser, base_url + "index.html?ds=nino34&ev=")
+    _seek(page, 1000)
+    assert _state(page) == "paused"
+    assert page.evaluate(PLAY)["dot"] == _loop_point(data, 1000)
+    assert page.evaluate(PLAY)["trace"] == 1001
+    assert errors == []
+
+
+def test_compare_plays_every_record_on_the_same_month(browser, base_url):
+    page, errors = _open(browser, base_url + "compare.html?a=nino12&b=callao&c=model&ev=")
+    a0, b0 = page.evaluate(PLAY, {"slot": "A"})["dot"], page.evaluate(PLAY, {"slot": "B"})["dot"]
+    assert a0 is None and b0 is None
+    page.click("[data-player-toggle]")
+    _wait_pos(page, 60)
+    page.click("[data-player-toggle]")
+    a, b = page.evaluate(PLAY, {"slot": "A"}), page.evaluate(PLAY, {"slot": "B"})
+    assert a["dot"] and b["dot"] and a["historyHidden"] and b["historyHidden"]
+    # Both records at the same calendar month, the one the label names.
+    ta = page.evaluate(TIME_CURSOR, {"role": "cursor", "slot": "A"})
+    tb = page.evaluate(TIME_CURSOR, {"role": "cursor", "slot": "B"})
+    assert ta == tb
+    frame = page.evaluate("fetch('data/compare/frame.json').then(r => r.json())")
+    month = frame["calendar"][_pos(page) // frame["play"]["step"]]
+    assert ta.startswith(month)
+    assert page.text_content("[data-player-label]") == frame["calendar_labels"][frame["calendar"].index(month)]
+    # The model has no calendar: it has no play traces and stays drawn whole.
+    c = page.evaluate(PLAY, {"slot": "C"})
+    assert c["dot"] is None and c["trace"] == -1 and not c["historyHidden"]
+    # Moving on keeps playing both: another frame, both dots moved.
+    page.click("[data-player-toggle]")
+    _wait_pos(page, _pos(page) + 20)
+    assert page.evaluate(PLAY, {"slot": "A"})["dot"] != a["dot"]
+    assert page.evaluate(PLAY, {"slot": "B"})["dot"] != b["dot"]
+    assert errors == []
+
+
+def test_compare_plays_only_the_highlighted_event(browser, base_url):
+    page, errors = _open(browser, base_url + "compare.html?a=nino12&b=callao&ev=2015-16")
+    page.select_option("[data-player-speed]", "48")
+    page.click("[data-player-toggle]")
+    page.wait_for_function("document.querySelector('[data-player]').dataset.state === 'paused'", timeout=10000)
+    assert page.text_content("[data-player-label]") == "Jun 2016"
+    assert page.evaluate(TIME_CURSOR, {"role": "cursor", "slot": "B"}).startswith("2016-06")
+    assert errors == []
+
+
+def test_duffing_trajectory_plays_and_keeps_playing_across_runs(browser, base_url):
+    page, errors = _open(browser, base_url + "duffing.html")
+    page.click("[data-player-toggle]")
+    _wait_pos(page, 30)
+    first = page.evaluate(PLAY)
+    _wait_pos(page, _pos(page) + 30)
+    second = page.evaluate(PLAY)
+    assert second["dot"] != first["dot"] and second["trace"] > first["trace"] and second["historyHidden"]
+    assert page.evaluate(TIME_CURSOR, {"role": "cursor", "row": "X"}) is not None
+    assert page.text_content("[data-player-label]").startswith("Model year")
+    page.select_option("select[name='fa']", "1.5")
+    _idle(page)
+    page.wait_for_timeout(200)
+    assert _state(page) == "playing" and page.evaluate(PLAY)["dot"] is not None
+    assert errors == []
+
+
+def test_duffing_section_still_plays_its_phases(browser, base_url):
+    page, errors = _open(browser, base_url + "duffing.html")
+    page.click("[data-play='phase']")
+    page.wait_for_function("document.querySelector(\"select[name='phase']\").value !== '0'", timeout=5000)
+    page.click("[data-play='phase']")
+    assert errors == []
+
+
+def test_phone_player_fits(browser, base_url):
+    page, errors = _open(browser, base_url + "index.html", width=390)
+    assert page.evaluate("document.documentElement.scrollWidth") <= 390
+    box = page.locator("[data-player]").bounding_box()
+    assert box["x"] >= 0 and box["x"] + box["width"] <= 390
+    assert errors == []

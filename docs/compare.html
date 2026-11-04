@@ -104,7 +104,31 @@
   </div>
   <div class="linked">
     <div class="linked__loop">
-      <div class="plot plot--square" data-plot="phase" role="img" aria-label="Normalised phase loops of the chosen records"></div>
+      <div class="plot-frame">
+        <div class="plot plot--square" data-plot="phase" role="img" aria-label="Normalised phase loops of the chosen records"></div>
+        <div class="plot-stamp" data-player-stamp hidden></div>
+      </div>
+      <div class="player" data-player>
+  <button type="button" class="icon-button" data-player-toggle aria-pressed="false" aria-label="Play through time">
+    <svg class="icon-play" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
+    <svg class="icon-pause" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5h3v11H4zM9 2.5h3v11H9z" fill="currentColor"/></svg>
+  </button>
+  <button type="button" class="icon-button" data-player-reset aria-label="Stop and show everything again" title="Stop and show everything again" disabled>
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1" fill="currentColor"/></svg>
+  </button>
+  <input class="player__scrub" type="range" min="0" max="0" value="0" step="1" data-player-scrub aria-label="Position in time, by month">
+  <output class="player__when" data-player-label></output>
+  <label class="player__speed"><span class="visually-hidden">Speed</span>
+    <select data-player-speed aria-label="Speed">
+      <option value="3">3 months/s</option>
+      <option value="6" selected>6 months/s</option>
+      <option value="12">12 months/s</option>
+      <option value="24">24 months/s</option>
+      <option value="48">48 months/s</option>
+    </select>
+  </label>
+</div>
+
     </div>
     <div class="linked__side">
       <ul class="key key--slots" aria-label="Records">
@@ -187,6 +211,11 @@ removed) divided by that anomaly's own standard deviation, so El Niño events
 line up across records whatever their units or seasonal swing. The model has
 no real calendar, so it is on the loops and the section but not on the time
 strip.</p>
+<p>Play runs every chosen record on the same calendar: one dot per record,
+each at the same month, with its last 12 months trailing behind and its
+path building up; the time strip marks that month on each record. A
+highlighted El Niño or dragged period plays alone. The model has no
+calendar, so it stays drawn whole and does not move.</p>
 <p>The annual section keeps one point per year, in the chosen calendar month.
 Records that share a seasonal rhythm cluster in the same part of the plane
 for the same month.</p>
@@ -196,7 +225,7 @@ for the same month.</p>
 
 <footer class="site-footer">
   <div class="wrap">
-    <p>Data: <a href="https://www.cpc.ncep.noaa.gov/data/indices/">NOAA CPC</a> SST indices (monthly), <a href="https://uhslc.soest.hawaii.edu/">UHSLC</a> tide gauges (hourly, averaged to months). Downloaded 2026-11-04.</p>
+    <p>Data: <a href="https://www.cpc.ncep.noaa.gov/data/indices/">NOAA CPC</a> SST indices (monthly), <a href="https://uhslc.soest.hawaii.edu/">UHSLC</a> tide gauges (hourly, averaged to months). Data last changed 4 Nov 2026; last checked for new data: Sea surface temperature 4 Nov 2026, sea level 4 Nov 2026.</p>
     <p>Fourier low-pass, HN1 = 10, HN2 = 9 (full periods under about 18 to 20 months removed). All numbers are computed in Python; this page only draws them. <a href="https://github.com/uferreira/el_nino_202610">Source</a>.</p>
   </div>
 </footer>
