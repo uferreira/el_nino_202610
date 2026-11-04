@@ -43,6 +43,7 @@
   <div class="field__row">
     <select id="ctl-ds" name="ds" data-control>
 <optgroup label="Sea surface temperature">        <option value="nino12" selected>NINO1+2</option>
+        <option value="nino12w">NINO1+2 weekly</option>
         <option value="nino3">NINO3 anomaly</option>
         <option value="nino34">NINO3.4 anomaly</option>
         <option value="nino4">NINO4 anomaly</option>
@@ -113,7 +114,7 @@
       <ul class="key" aria-label="Legend">
         <li><span class="swatch swatch--history"></span>Whole record<span class="key__detail" data-field="window"></span></li>
         <li><span class="swatch swatch--recent"></span>Latest 12 months</li>
-        <li><span class="swatch swatch--provisional"></span><span>Provisional, last <span data-field="provisional_months"></span> months</span></li>
+        <li><span class="swatch swatch--provisional"></span><span>Provisional, last <span data-field="provisional_span"></span></span></li>
         <li class="key__highlight" hidden><span class="swatch swatch--highlight"></span><span data-field="highlight.range"></span>
           <button type="button" class="link-button" data-action="clear">Clear</button></li>
       </ul>
@@ -148,7 +149,12 @@ loop and shaded in the time panel (METHODS.md in the repository explains
 how long it is and why).</p>
 <p>Drag across the time series to highlight a period; double-click or Clear
 removes it. Hover either view to find the same month in the other.</p>
-<p>Play draws the loop through time: a dot moves month by month, the last
+<p>NINO1+2 weekly is NOAA's weekly OISST analysed the same way in weekly
+units: a point per week (named by its Wednesday), the cutoffs in weeks, the
+rate still per month, and the provisional end of the same length in time
+(43 weeks). Its seasonal cycle is a fit of four annual harmonics.</p>
+<p>Play draws the loop through time: a dot moves month by month (week by week
+for NINO1+2 weekly, with its speeds in weeks per second), the last
 12 months trail behind it in red, and the path it has drawn builds up
 behind. The time panel marks the same month. With an El Niño (or a dragged
 period) highlighted, Play runs only that period. The slider moves to any
@@ -159,7 +165,7 @@ month; the reset button returns to the whole record.</p>
 
 <footer class="site-footer">
   <div class="wrap">
-    <p>Data: <a href="https://www.cpc.ncep.noaa.gov/data/indices/">NOAA CPC</a> SST indices (monthly), <a href="https://uhslc.soest.hawaii.edu/">UHSLC</a> tide gauges (hourly, averaged to months). Data last changed 4 Nov 2026; last checked for new data: Sea surface temperature 4 Nov 2026, sea level 4 Nov 2026.</p>
+    <p>Data: <a href="https://www.cpc.ncep.noaa.gov/data/indices/">NOAA CPC</a> SST indices (monthly, and weekly for NINO1+2), <a href="https://uhslc.soest.hawaii.edu/">UHSLC</a> tide gauges (hourly, averaged to months). Data last changed 4 Nov 2026; last checked for new data: Sea surface temperature 4 Nov 2026, sea level 4 Nov 2026.</p>
     <p>Fourier low-pass, HN1 = 10, HN2 = 9 (full periods under about 18 to 20 months removed). All numbers are computed in Python; this page only draws them. <a href="https://github.com/uferreira/el_nino_202610">Source</a>.</p>
   </div>
 </footer>

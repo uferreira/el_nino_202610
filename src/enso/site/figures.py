@@ -3,6 +3,8 @@ the per-period history paths of a loop."""
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import numpy as np
 import plotly.graph_objects as go
 
@@ -38,6 +40,14 @@ def month_after(period: str, n: int) -> str:
     y, m = map(int, period.split("-"))
     y, m = divmod(y * 12 + m - 1 + n, 12)
     return f"{y:04d}-{m + 1:02d}"
+
+
+def axis_end(period: str, months: int) -> str:
+    """The end of a time axis ``months`` after its last period: a month
+    ("YYYY-MM") or, for a weekly record, a date ("YYYY-MM-DD")."""
+    if len(period) == 10:
+        return (date.fromisoformat(period) + timedelta(days=round(months * 30.4375))).isoformat()
+    return month_after(period, months)
 
 
 def history_paths(x, y, step: int, stop: int, decimals: tuple[int, int], meta: dict | None = None,

@@ -42,10 +42,26 @@ class PhaseSeries:
     sigma_filter: float       # RMS(filtered - observed)
     fetched: str
     source: str
+    cadence: str = "monthly"  # weekly: periods are "YYYY-MM-DD" (a Wednesday), ndots is 1
 
     @property
     def n_months(self) -> int:
+        """Samples in the window (months, or weeks for a weekly record)."""
         return len(self.periods)
+
+    @property
+    def weekly(self) -> bool:
+        return self.cadence == "weekly"
+
+    @property
+    def year_points(self) -> int:
+        """Loop points in one year: the length of a history path."""
+        return 52 * self.ndots if self.weekly else 12 * self.ndots
+
+    @property
+    def recent(self) -> int:
+        """Samples in the latest 12 months (52 weeks)."""
+        return 52 if self.weekly else 12
 
     @property
     def has_seasonal_cycle(self) -> bool:
@@ -113,6 +129,8 @@ def compute(record: Record, ds: Dataset, params: FilterParams) -> PhaseSeries:
 
 
 def month_label(period: str, short: bool = True) -> str:
-    y, m = period.split("-")
+    """"Oct 2026" for a month, "28 Oct 2026" for a week's date."""
+    y, m, *d = period.split("-")
     name = MONTH_NAMES[int(m) - 1]
-    return f"{name[:3] if short else name} {y}"
+    day = f"{int(d[0])} " if d else ""
+    return f"{day}{name[:3] if short else name} {y}"

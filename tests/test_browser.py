@@ -451,3 +451,164 @@ def test_phone_player_fits(browser, base_url):
     box = page.locator("[data-player]").bounding_box()
     assert box["x"] >= 0 and box["x"] + box["width"] <= 390
     assert errors == []
+
+
+# ---- NINO1+2 weekly -------------------------------------------------------------
+
+def _weekly(site):
+    import json
+    return json.loads((site / "data/phase/nino12w.json").read_text(encoding="utf-8"))
+
+
+def test_weekly_dataset_readout_legend_and_speeds_are_in_weeks(browser, base_url, site):
+    data = _weekly(site)
+    page, errors = _open(browser, base_url + "index.html?ds=nino12w&ev=")
+    assert page.input_value("select[name='ds']") == "nino12w"
+    assert page.text_content(".now__month") == "Week centred on " + data["now"]["through"]
+    assert "last 43 weeks" in page.text_content(".key")
+    assert "43 weeks" in page.text_content(".now__note")
+    speeds = page.eval_on_selector_all("[data-player-speed] option", "o => o.map(x => x.textContent)")
+    assert speeds == ["13 weeks/s", "26 weeks/s", "52 weeks/s", "104 weeks/s", "208 weeks/s"]
+    assert page.input_value("[data-player-speed]") == "26"
+    assert "week" in page.get_attribute("[data-player-scrub]", "aria-label")
+    # every event button works with this record
+    assert all(page.is_enabled(f"[data-event='{e['label']}']") for e in data["events"])
+    # and the speeds go back to months when a monthly record is chosen again
+    page.select_option("select[name='ds']", "nino12")
+    _idle(page)
+    assert page.eval_on_selector_all("[data-player-speed] option", "o => o.map(x => x.textContent)")[1] == "6 months/s"
+    assert "last 10 months" in page.text_content(".key")
+    assert errors == []
+
+
+def test_weekly_event_button_highlights_both_views_in_weeks(browser, base_url, site):
+    data = _weekly(site)
+    ev = next(e for e in data["events"] if e["label"] == "2023-24")
+    page, errors = _open(browser, base_url + "index.html?ds=nino12w&ev=")
+    page.click("[data-event='2023-24']")
+    weeks = ev["i1"] - ev["i0"] + 1
+    assert page.evaluate(TRACE, ["phase", {"role": "highlight", "provisional": False}]) == weeks
+    assert page.evaluate(TRACE, ["time", {"role": "highlight", "row": "T"}]) == weeks
+    assert page.text_content(".key__highlight") .strip().startswith("Mar 2023 to May 2024")
+    page.click("[data-action='clear']")
+    assert page.evaluate(TRACE, ["phase", {"role": "highlight", "provisional": False}]) == 0
+    assert errors == []
+
+
+def test_dragging_a_range_on_the_weekly_series_highlights_weeks(browser, base_url):
+    page, errors = _open(browser, base_url + "index.html?ds=nino12w&ev=")
+    box = page.locator("[data-plot='time'] .nsewdrag").first.bounding_box()
+    y = box["y"] + box["height"] / 2
+    page.mouse.move(box["x"] + box["width"] * 0.30, y)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] * 0.45, y, steps=10)
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    n = page.evaluate(TRACE, ["phase", {"role": "highlight", "provisional": False}])
+    assert n > 300 and n == page.evaluate(TRACE, ["time", {"role": "highlight", "row": "T"}])
+    assert errors == []
+
+
+def test_weekly_play_runs_the_event_week_by_week(browser, base_url, site):
+    data = _weekly(site)
+    ev = next(e for e in data["events"] if e["label"] == "2015-16")
+    page, errors = _open(browser, base_url + "index.html?ds=nino12w&ev=2015-16", color_scheme="light")
+    page.select_option("[data-player-speed]", "208")
+    page.click("[data-player-toggle]")
+    page.wait_for_function("document.querySelector('[data-player]').dataset.state === 'paused'", timeout=15000)
+    scrub = page.locator("[data-player-scrub]")
+    assert int(scrub.get_attribute("min")) == ev["i0"] and int(scrub.get_attribute("max")) == _pos(page) == ev["i1"]
+    assert page.evaluate(PLAY)["dot"] == _loop_point(data, ev["i1"])
+    assert page.text_content("[data-player-label]") == data["period_labels"][ev["i1"]]
+    assert page.evaluate(TIME_CURSOR, {"role": "cursor", "row": "T"}).startswith(data["periods"][ev["i1"]])
+    assert errors == []
+
+
+def test_weekly_play_whole_record_tail_is_52_weeks(browser, base_url, site):
+    data = _weekly(site)
+    page, errors = _open(browser, base_url + "index.html?ds=nino12w&ev=")
+    _seek(page, 1500)
+    assert _state(page) == "paused"
+    now = page.evaluate(PLAY)
+    assert now["dot"] == _loop_point(data, 1500) and now["trace"] == 1501
+    assert now["tail"] == 53                                 # 52 weeks behind the dot, and the dot
+    assert page.text_content("[data-player-label]") == data["period_labels"][1500]
+    assert errors == []
+
+
+def test_changing_between_monthly_and_weekly_while_playing_keeps_the_month(browser, base_url, site):
+    page, errors = _open(browser, base_url + "index.html?ev=")
+    _seek(page, 900)                                    # 1990, in both records
+    month = page.text_content("[data-player-label]")
+    assert month.endswith("1990")
+    page.select_option("select[name='ds']", "nino12w")
+    _idle(page)
+    page.wait_for_timeout(200)
+    assert _state(page) == "paused"
+    assert page.text_content("[data-player-label]").endswith(month)       # "3 Jan 1990" for "Jan 1990"
+    assert 440 < _pos(page) < 500                                         # week 470 of the record, not 900
+    page.select_option("select[name='ds']", "nino12")
+    _idle(page)
+    page.wait_for_timeout(200)
+    assert page.text_content("[data-player-label]") == month
+    # A month before the weekly record starts (1981) goes to its first week.
+    _seek(page, 50)
+    page.select_option("select[name='ds']", "nino12w")
+    _idle(page)
+    page.wait_for_timeout(200)
+    assert page.text_content("[data-player-label]") == "4 Nov 1981" and _pos(page) == 0
+    assert errors == []
+
+
+def test_compare_overlays_monthly_and_weekly_and_plays_them_together(browser, base_url, site):
+    import json
+    f = json.loads((site / "data/compare/frame.json").read_text(encoding="utf-8"))
+    w = json.loads((site / "data/compare/nino12w.json").read_text(encoding="utf-8"))
+    page, errors = _open(browser, base_url + "compare.html?a=nino12&b=nino12w&ev=")
+    assert page.evaluate(SLOT_COLOR, "A") != page.evaluate(SLOT_COLOR, "B")
+    assert "NINO1+2 weekly" in page.text_content("#compare [data-slot-key='B']")
+    page.select_option("[data-player-speed]", "48")
+    page.click("[data-player-toggle]")
+    _wait_pos(page, 400)
+    page.click("[data-player-toggle]")
+    pos = _pos(page)
+    a, b = page.evaluate(PLAY, {"slot": "A"}), page.evaluate(PLAY, {"slot": "B"})
+    assert a["dot"] and b["dot"] and a["historyHidden"] and b["historyHidden"]
+    # The weekly dot is Python's calendar map at that point, on its own loop.
+    j = w["cal_map"][pos]
+    assert b["dot"] == [w["loop"]["x"][j], w["loop"]["y"][j]]
+    # The time strip marks each record's own sample: the weekly record's week, and the
+    # month sample the monthly dot has passed (up to a month behind the weekly week).
+    ta = page.evaluate(TIME_CURSOR, {"role": "cursor", "slot": "A"})
+    tb = page.evaluate(TIME_CURSOR, {"role": "cursor", "slot": "B"})
+    assert tb.startswith(w["periods"][j])
+    from datetime import date
+    gap = (date.fromisoformat(tb[:10]) - date.fromisoformat(ta[:7] + "-15")).days
+    assert 0 <= gap <= 31, (ta, tb)
+    assert page.text_content("[data-player-label]") == f["calendar_labels"][pos // f["play"]["step"]]
+    assert errors == []
+
+
+def test_compare_event_highlights_monthly_and_weekly_and_plays_to_its_end(browser, base_url):
+    page, errors = _open(browser, base_url + "compare.html?a=nino12&b=nino12w&ev=2015-16")
+    ma = page.evaluate(TRACE, ["phase", {"role": "highlight", "provisional": False, "slot": "A"}])
+    mb = page.evaluate(TRACE, ["phase", {"role": "highlight", "provisional": False, "slot": "B"}])
+    assert ma == (16 - 1) * 5 + 1 and 69 <= mb <= 71           # 16 months (5 points each); about 70 weeks
+    page.select_option("[data-player-speed]", "48")
+    page.click("[data-player-toggle]")
+    page.wait_for_function("document.querySelector('[data-player]').dataset.state === 'paused'", timeout=15000)
+    assert page.text_content("[data-player-label]") == "Jun 2016"
+    assert page.evaluate(TIME_CURSOR, {"role": "cursor", "slot": "A"}).startswith("2016-06")
+    assert page.evaluate(TIME_CURSOR, {"role": "cursor", "slot": "B"}).startswith("2016-0")
+    assert errors == []
+
+
+def test_compare_hover_marks_monthly_and_weekly_records(browser, base_url):
+    page, errors = _open(browser, base_url + "compare.html?a=nino12&b=nino12w")
+    box = page.locator("[data-plot='time'] .nsewdrag").first.bounding_box()
+    page.mouse.move(box["x"] + 5, box["y"] + 5)
+    page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] / 2, steps=8)
+    page.wait_for_timeout(300)
+    assert page.evaluate(TRACE, ["phase", {"role": "cursor", "slot": "A"}]) == 1
+    assert page.evaluate(TRACE, ["phase", {"role": "cursor", "slot": "B"}]) == 1
+    assert errors == []

@@ -195,13 +195,46 @@ def test_behind_flags_a_month_noaa_has_and_the_site_lacks(tmp_path):
 
 def test_behind_command_turns_red_when_noaa_is_ahead(monkeypatch, capsys):
     """Against the committed docs/: red for a month the site lacks, green for its own."""
-    site_month = status.site_latest("nino12")
+    site_month, site_week = status.site_latest("nino12"), status.site_latest("nino12w")
+    monkeypatch.setitem(status.UPSTREAM_WEEKLY, "noaa_sst", lambda: site_week)
     monkeypatch.setitem(status.UPSTREAM, "noaa_sst", lambda: "2099-01")
     assert status.main(["--behind", "noaa_sst"]) == 1
     out = capsys.readouterr().out      # "BEHIND nino12", or "::error::site behind nino12" on GitHub
     assert "BEHIND nino12" in out or "::error::site behind nino12" in out
     monkeypatch.setitem(status.UPSTREAM, "noaa_sst", lambda: site_month)
     assert status.main(["--behind", "noaa_sst"]) == 0
+
+
+def test_behind_command_covers_the_weekly_file(monkeypatch, capsys):
+    """A week NOAA has and the site lacks turns the check red, naming the weekly dataset."""
+    site_month, site_week = status.site_latest("nino12"), status.site_latest("nino12w")
+    assert len(site_week) == 10 and site_week > site_month                    # a date, "YYYY-MM-DD"
+    monkeypatch.setitem(status.UPSTREAM, "noaa_sst", lambda: site_month)
+    monkeypatch.setitem(status.UPSTREAM_WEEKLY, "noaa_sst", lambda: "2099-01-06")
+    assert status.main(["--behind", "noaa_sst"]) == 1
+    out = capsys.readouterr().out
+    assert "BEHIND nino12w" in out or "site behind nino12w" in out
+    assert "nino12:" not in out
+    monkeypatch.setitem(status.UPSTREAM_WEEKLY, "noaa_sst", lambda: site_week)
+    assert status.main(["--behind", "noaa_sst"]) == 0
+
+
+def test_weekly_dataset_is_fetched_and_recorded_with_the_sst_writer(tmp_path):
+    from enso import fetch
+    from enso.config import load_config
+    cfg = load_config()
+    assert "nino12w" in publish.Publisher(cfg, "noaa_sst", push=False).keys
+    assert fetch.weekly_path(tmp_path / "series") == tmp_path / "weekly" / "wksst.csv"
+    # its download is recorded like the others, so "last checked" and --check cover it
+    status.record("noaa_sst", [("nino12w", "OK     nino12w: 1 weeks")], "2026-11-04", tmp_path)
+    assert status.checked_label("noaa_sst", "nino12w", tmp_path) == "4 Nov 2026"
+    assert status.stale("noaa_sst", ["nino12w"], 15, "2026-12-01", tmp_path)       # 27 days: stale
+
+
+def test_commit_message_names_both_the_months_and_the_weeks():
+    from enso.config import load_config
+    msg = publish.Publisher(load_config(), "noaa_sst", push=False).message()
+    assert msg.startswith("data: Sea surface temperature through 20") and ", weekly through 20" in msg
 
 
 def test_sst_workflow_runs_on_the_4th_records_its_check_and_goes_red_when_behind():

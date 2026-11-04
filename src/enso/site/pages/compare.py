@@ -9,6 +9,11 @@ over its analysis window. Dividing both axes by the same sigma_x keeps each
 loop's shape, so the height of a loop still says how fast that record
 moves, in units of its own typical swing per month.
 
+A weekly record (NINO1+2 weekly) is on the same plane and the same calendar:
+its periods are dates, its loop has a point per week, and it carries ``cal_map``
+(the loop point it shows at each point of the shared monthly calendar), so
+monthly and weekly NINO1+2 play side by side.
+
 Files: one JSON per dataset (and one for the model) holding ready-made
 traces, plus data/compare/frame.json with the layouts. site.js places the
 chosen datasets into the frame and colours them by slot (A, B, C); every
@@ -19,6 +24,8 @@ from __future__ import annotations
 
 import numpy as np
 import plotly.graph_objects as go
+
+import datetime as dt
 
 from enso import model
 from enso.config import Config
@@ -42,8 +49,11 @@ class Norm:
     """A record on the normalised plane: fine loop, monthly points, periods."""
 
     def __init__(self, key, label, periods, T, V, ndots, provisional_from, mean, sigma,
-                 short=None, anomaly=None):
+                 short=None, anomaly=None, weekly=False, year_points=None, recent=12):
         self.key, self.label, self.periods, self.ndots = key, label, periods, ndots
+        self.weekly = weekly
+        self.year_points = year_points or 12 * ndots     # loop points per history path
+        self.recent = recent                              # samples in the latest 12 months
         self.short = short or label
         # Time strip: the filtered anomaly (seasonal cycle removed) over its own
         # standard deviation; None for the model, which has no real calendar.
@@ -59,7 +69,8 @@ def observed(cfg: Config, key: str) -> Norm:
     ps = phase_series(cfg, key)
     T = ps.T
     return Norm(key, ps.dataset.label, ps.periods, T, ps.V, ps.ndots,
-                first_provisional(ps, cfg), float(T.mean()), float(T.std(ddof=1)), anomaly=ps.anomaly)
+                first_provisional(ps, cfg), float(T.mean()), float(T.std(ddof=1)), anomaly=ps.anomaly,
+                weekly=ps.weekly, year_points=ps.year_points, recent=ps.recent)
 
 
 def model_record(cfg: Config) -> Norm:
@@ -95,7 +106,7 @@ def loop_traces(r: Norm) -> list[dict]:
     k, n = r.ndots, len(r.periods)
     p = r.provisional_from if r.provisional_from is not None else n - 1
     dx, dy = DEC
-    out = [t.to_plotly_json() for t in history_paths(r.x, r.y, 12 * k, p * k, DEC, width=1.0)]
+    out = [t.to_plotly_json() for t in history_paths(r.x, r.y, r.year_points, p * k, DEC, width=1.0)]
     for t in out:
         t["opacity"] = 0.3       # per-year paths: overlaps build up density
     if r.provisional_from is not None:
@@ -107,7 +118,7 @@ def loop_traces(r: Norm) -> list[dict]:
                               line={"width": 3, **({"dash": DASH} if prov else {})},
                               hoverinfo="skip", meta={"role": "highlight", "provisional": prov}).to_plotly_json())
     if r.provisional_from is not None:        # observed records: latest 12 months and now
-        rr = max(n - RECENT_MONTHS, 0)
+        rr = max(n - r.recent, 0)
         out += [
             go.Scatter(x=rnd(r.x[rr * k:p * k + 1], dx), y=rnd(r.y[rr * k:p * k + 1], dy), mode="lines",
                        line={"width": 2}, hoverinfo="skip", meta={"role": "recent"}),
@@ -166,6 +177,13 @@ def section_traces(r: Norm) -> list[list[dict]]:
     years = [q[:4] for q in r.periods]
     for m in range(1, 13):
         idx = np.flatnonzero(months == m)
+        if r.weekly:       # the week nearest the middle of the month, one per year
+            best = {}
+            for i in idx:
+                near = abs(int(r.periods[i][8:10]) - 15)
+                if years[i] not in best or near < best[years[i]][0]:
+                    best[years[i]] = (near, i)
+            idx = np.array(sorted(i for _, i in best.values()), dtype=int)
         out.append([go.Scatter(
             x=rnd(r.xm[idx], DEC[0]), y=rnd(r.ym[idx], DEC[1]), mode="markers",
             marker={"size": 7, "line": {"width": 1}}, customdata=[years[i] for i in idx],
@@ -174,8 +192,36 @@ def section_traces(r: Norm) -> list[list[dict]]:
     return out
 
 
-def build_record(cfg: Config, r: Norm) -> dict:
+def calendar_months(records: list[Norm]) -> tuple[list[str], int]:
+    """The shared animation calendar: every month any observed record has, and
+    the loop points per month (the monthly records' ndots)."""
+    timed = [r for r in records if r.anom is not None]
+    first = min(r.periods[0][:7] for r in timed)
+    last = max(r.periods[-1][:7] for r in timed)
+    ks = {r.ndots for r in timed if not r.weekly}
+    if len(ks) != 1:
+        raise ValueError("Compare's animation needs every monthly record with the same ndots")
+    calendar = [first]
+    while calendar[-1] < last:
+        calendar.append(month_after(calendar[-1], 1))
+    return calendar, ks.pop()
+
+
+def calendar_map(r: Norm, calendar: list[str], k: int) -> list[int]:
+    """For a weekly record: the loop point (a week) shown at each point of the
+    monthly calendar (k points per month, the first at the middle of its month).
+    -1 before the record starts; the last week after it ends."""
+    t0 = dt.date.fromisoformat(calendar[0] + "-15")
+    days = np.arange((len(calendar) - 1) * k + 1) * (30.4375 / k)
+    week0 = dt.date.fromisoformat(r.periods[0])
+    weeks = ((t0 - week0).days + days) / 7.0
+    j = np.where(weeks < -0.5, -1, np.minimum(np.rint(weeks), len(r.periods) - 1))
+    return j.astype(int).tolist()
+
+
+def build_record(cfg: Config, r: Norm, calendar: tuple[list[str], int] | None = None) -> dict:
     p = r.provisional_from
+    on_calendar = r.anom is not None
     return {
         "key": r.key,
         "label": r.label,
@@ -190,7 +236,11 @@ def build_record(cfg: Config, r: Norm) -> dict:
         # Axis extents with margins; the page uses the union over the chosen records.
         "extent": {"x": padded(r.x, 0.05, extra_high=0.18), "y": padded(r.y, 0.06),
                    "ta": None if r.anom is None else padded(r.anom, 0.06)},
-        "calendar": r.anom is not None,       # on the time strip, linked by date
+        "calendar": on_calendar,       # on the time strip, linked by date
+        "weekly": r.weekly,
+        # Loop points per sample and the 12-month tail, in this record's own points.
+        "play": {"step": r.ndots, "tail": r.recent * r.ndots},
+        "cal_map": calendar_map(r, *calendar) if (r.weekly and calendar) else None,
         "traces": {"loop": loop_traces(r), "time": time_traces(r), "section": section_traces(r)},
     }
 
@@ -218,8 +268,8 @@ def build_frame(cfg: Config, records: list[Norm]) -> dict:
                                 "dragmode": "zoom", "uirevision": "compare-section"})
 
     timed = [r for r in records if r.anom is not None]
-    first = min(r.periods[0] for r in timed)
-    last = max(r.periods[-1] for r in timed)
+    calendar, k = calendar_months(records)
+    first, last = calendar[0], calendar[-1]
     time_end = month_after(last, 9)
     time = go.Figure(layout={
         "margin": {"l": 64, "r": 16, "t": 28, "b": 28}, "showlegend": False,
@@ -239,12 +289,6 @@ def build_frame(cfg: Config, records: list[Norm]) -> dict:
         events.append({"label": ev.label, "start": ev.start, "end": end,
                        "range": f"{month_label(ev.start)} to {month_label(end)}{running}"})
     # One calendar for the shared animation: every month any observed record has.
-    k = timed[0].ndots
-    if any(r.ndots != k for r in timed):
-        raise ValueError("Compare's animation needs every record with the same ndots")
-    calendar = [first]
-    while calendar[-1] < last:
-        calendar.append(month_after(calendar[-1], 1))
     return {"loop": export(loop), "time": export(time), "section": export(section),
             "time_end": time_end, "events": events,
             "calendar": calendar, "calendar_labels": [month_label(q) for q in calendar],
@@ -263,7 +307,8 @@ def files(cfg: Config) -> dict:
     keys = [d.key for d in cfg.datasets] + [MODEL_KEY]
     out = {"data/compare/frame.json": lambda: build_frame(cfg, [rec(k) for k in keys])}
     for key in keys:
-        out[f"data/compare/{key}.json"] = (lambda key=key: build_record(cfg, rec(key)))
+        out[f"data/compare/{key}.json"] = (
+            lambda key=key: build_record(cfg, rec(key), calendar_months([rec(k) for k in keys])))
     return out
 
 

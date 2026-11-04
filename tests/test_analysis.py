@@ -90,7 +90,7 @@ def test_fetch_can_select_by_source_type(monkeypatch):
 
 # ---- committed data -----------------------------------------------------
 
-@pytest.mark.parametrize("ds", CFG.datasets, ids=lambda d: d.key)
+@pytest.mark.parametrize("ds", [d for d in CFG.datasets if not d.is_weekly], ids=lambda d: d.key)
 def test_committed_series_are_continuous_and_recent(ds):
     rec = series.read(ds.key)
     serial = rec.year.astype(int) * 12 + rec.month

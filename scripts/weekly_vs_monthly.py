@@ -53,6 +53,17 @@ def run_monthly(rec, cfg, start, end=None):
     return phasespace.compute(rec, cfg.dataset(KEY), params)
 
 
+def run_monthly_harmonic(ps, mdates, cfg):
+    """The monthly analysis on the ps window with the weekly method's seasonal
+    cycle (mean plus 4 harmonics on the day of the year, fitted to the monthly
+    values at mid-month) instead of the 12 monthly means. Isolates what is
+    climatology from what is sampling."""
+    cycle = weekly.seasonal_cycle(mdates, ps.observed, cfg.weekly.get("harmonics", 4))
+    anomaly = fourier.passa_baixa(cfg.filter.HN1, cfg.filter.HN2, ps.observed - cycle)
+    T, V, _ = fourier.deri_fourier(cfg.filter.NDOTS, anomaly + cycle)
+    return T[:: cfg.filter.NDOTS], V[:: cfg.filter.NDOTS], anomaly
+
+
 def run_weekly(rec, cfg, end=None, not_before=None):
     return weekly.compute(rec, KEY, "absolute", cfg.filter, cfg.weekly.get("harmonics", 4),
                           end=end, not_before=not_before)
@@ -201,6 +212,23 @@ def main(argv=None) -> None:
     print(f"  of which seasonal cycle (T): {np.sqrt(np.mean(d_cycle[ok] ** 2)):.3f}; "
           f"rate of the anomaly alone: {np.sqrt(np.mean(d_rate[ok] ** 2)):.3f} "
           f"(its monthly std {np.std(va_m):.3f})")
+    Th, Vh, Ah = run_monthly_harmonic(ps, mdates, cfg)
+    print("with the monthly record also on the 4-harmonic cycle (the published monthly default "
+          "keeps the 12-month climatology):")
+    for name, a, b, c in (("T", at(wp.T), Th, ps.T_month), ("dT/dt", at(wp.V), Vh, ps.V_month),
+                          ("filtered anomaly", at(wp.anomaly), Ah, ps.anomaly)):
+        r = lambda u, v: np.sqrt(np.mean((u - v)[ok] ** 2))
+        print(f"  {name}: weekly - monthly(harmonic) {r(a, b):.3f} (sampling); "
+              f"monthly(harmonic) - monthly(12 means) {r(b, c):.3f} (climatology)")
+    for name, (w, v) in {"monthly": (mdates, ps.observed), "weekly": (wp.week, wp.observed)}.items():
+        ph = 2 * np.pi * weekly.year_phase(w)
+        c = np.linalg.lstsq(np.column_stack([np.ones_like(ph), np.cos(ph), np.sin(ph)]), v, rcond=None)[0]
+        print(f"  annual harmonic, {name}: amplitude {np.hypot(c[1], c[2]):.3f} °C, "
+              f"phase {np.arctan2(c[2], c[1]) / (2 * np.pi) * weekly.DAYS_PER_YEAR:.2f} days")
+    best = min(range(-6, 7), key=lambda d: np.sqrt(np.mean(
+        (weekly.seasonal_cycle(mdates, ps.observed, 4)
+         - weekly.seasonal_cycle(wp.week, wp.observed, 4, at=mdates + np.timedelta64(d, "D"))) ** 2)))
+    print(f"  best shift of the weekly cycle against the monthly one: {best:+d} days")
     print(f"SIGMA30: monthly {ps.sigma_filter:.3f}, weekly {wp.sigma_filter:.3f} °C")
 
     i0 = int(np.searchsorted(wrec.week, wp.week[0]))

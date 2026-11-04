@@ -60,7 +60,7 @@ WEEKS_PER_MONTH = DAYS_PER_MONTH / 7.0
 # Column order of the source file, and the names used here and in the CSV.
 REGIONS = ("nino12", "nino3", "nino34", "nino4")
 COLUMNS = tuple(name for r in REGIONS for name in (r, f"{r}_anom"))
-# Monthly dataset key (config.yaml) -> weekly columns (value, anomaly).
+# Region -> weekly columns (value, anomaly).
 DATASET_COLUMNS = {r: (r, f"{r}_anom") for r in REGIONS}
 
 _HEADER = "Week          SST SSTA     SST SSTA     SST SSTA     SST SSTA"
@@ -150,9 +150,10 @@ def read(path: Path = WEEKLY_FILE) -> WeeklyRecord:
                         URL, meta.get("fetched", ""))
 
 
-def fetch(path: Path = WEEKLY_FILE) -> str:
+def fetch(path: Path = WEEKLY_FILE, key: str = "weekly") -> str:
     """Download, parse and write the weekly file; return a status line that
-    starts with OK, SAME or HELD, as enso.fetch does for the monthly records."""
+    starts with OK, SAME or HELD, as enso.fetch does for the monthly records.
+    ``key`` names the dataset in the line."""
     from enso import download
     resp = download._fetch(URL, "NOAA weekly SST indices (wksst9120.for)")
     rec = parse(resp.text)
@@ -161,11 +162,11 @@ def fetch(path: Path = WEEKLY_FILE) -> str:
     if path.exists():
         old = read(path)
         if rec.last_week < old.last_week:
-            return f"HELD   weekly: new record ends {rec.last_week}, committed one ends {old.last_week}"
+            return f"HELD   {key}: new record ends {rec.last_week}, committed one ends {old.last_week}"
         if data_lines(rec) == data_lines(old):
-            return f"SAME   weekly: no change, still through {old.last_week}"
+            return f"SAME   {key}: no change, still through {old.last_week}"
     write(rec, path)
-    return f"OK     weekly: {len(rec)} weeks through {rec.last_week}"
+    return f"OK     {key}: {len(rec)} weeks through {rec.last_week}"
 
 
 # -- the analysis ---------------------------------------------------------
@@ -247,7 +248,7 @@ def compute(rec: WeeklyRecord, dataset: str, quantity: str, params: FilterParams
             harmonics: int = 4, end=None, not_before=None) -> WeeklyPhase:
     """Weekly counterpart of enso.phasespace.compute for one region.
 
-    ``dataset`` is a monthly key (nino12, nino3, nino34, nino4); ``quantity``
+    ``dataset`` is the region (nino12, nino3, nino34 or nino4); ``quantity``
     is ``absolute`` (filter the SST around the window's fitted seasonal
     cycle) or ``anomaly`` (filter NOAA's SSTA directly)."""
     col_value, col_anom = DATASET_COLUMNS[dataset]
@@ -285,3 +286,31 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# -- as a PhaseSeries (what the site pages draw) ---------------------------
+
+def provisional_weeks(params: FilterParams) -> int:
+    """The provisional zone in weeks: the same span as in months (43 for 10)."""
+    return months_to_weeks(params.provisional_months)
+
+
+def to_phase_series(rec: WeeklyRecord, ds, cfg):
+    """The weekly record of dataset ``ds`` as a PhaseSeries: periods are the
+    Wednesdays ("YYYY-MM-DD"), NDOTS is 1 (loop point = week) and the rate is
+    in unit per month."""
+    from enso.phasespace import PhaseSeries
+    wp = compute(rec, ds.source["column"], ds.quantity, cfg.filter,
+                 cfg.weekly.get("harmonics", 4))
+    return PhaseSeries(
+        dataset=ds, ndots=1, periods=[str(w) for w in wp.week],
+        T=wp.T, V=wp.V, observed=wp.observed, anomaly=wp.anomaly,
+        observed_anomaly=wp.observed_anomaly, gap_filled=np.zeros(len(wp.week), dtype=bool),
+        window=wp.window, offset=0.0, sigma_filter=wp.sigma_filter, fetched=rec.fetched,
+        source=f"NOAA CPC wksst9120.for, column {ds.source['column']}", cadence="weekly",
+    )
+
+
+def latest_week(text: str) -> str:
+    """The last week ('YYYY-MM-DD') of a wksst9120.for text."""
+    return parse(text).last_week

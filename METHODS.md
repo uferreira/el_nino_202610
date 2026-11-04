@@ -9,7 +9,7 @@ committed records; the pages only draw it.
 |---|---|---|
 | NINO1+2 | NOAA CPC `sstoi.indices`, absolute SST (1975 to 1981 from the legacy file) | °C, seasonal cycle kept |
 | NINO3, NINO3.4, NINO4 | NOAA CPC anomaly columns (NOAA's own climatology) | °C anomaly |
-| NINO1+2, 3, 3.4, 4, weekly (not on the site) | NOAA CPC `wksst9120.for`, OISST weekly SST and SSTA from the week of 2 Sep 1981 | `data/weekly/wksst.csv`; see "Weekly SST" |
+| NINO1+2 weekly (dataset `nino12w`; the file also holds NINO3, 3.4, 4) | NOAA CPC `wksst9120.for`, OISST weekly SST and SSTA from the week of 2 Sep 1981 | `data/weekly/wksst.csv`; see "Weekly SST" |
 | Callao, La Libertad, Honolulu, Palau | UHSLC hourly tide gauges (Fast Delivery, extended with RAPID), monthly means needing 50% of hours | mm, seasonal cycle kept, minus the window mean |
 
 Download and monthly averaging are ported unchanged from `el_nino`
@@ -90,7 +90,13 @@ The model has no real calendar and is left off the time strip.
 
 ## Weekly SST
 
-**Not on the site yet.** The SST writer (`python -m enso.publish --source-type
+**On the site as "NINO1+2 weekly"** (Phase diagrams and Compare, after
+NINO1+2; monthly stays the default). Periods are dates (the Wednesday), the
+loop has a point per week, the animation speeds are in weeks per second, the
+provisional zone is 43 weeks, and Compare plays it beside monthly records on a
+shared monthly calendar (each calendar point shows the week nearest its date).
+The footer, "last checked" and `enso.status --behind` cover the weekly file.
+The SST writer (`python -m enso.publish --source-type
 noaa_sst`, in CI) also downloads NOAA CPC's weekly indices
 (`wksst9120.for`) into `data/weekly/wksst.csv`; `src/enso/weekly.py` holds
 the parser and the analysis, `scripts/weekly_vs_monthly.py` the comparison
@@ -160,11 +166,31 @@ Same window for both: Nov 1981 to Oct 2026 (540 months; 2348 weeks),
 | Filtered anomaly | 0.048 °C | 0.979 °C | 0.999 |
 
 Leaving out the provisional end changes none of these by more than 0.002.
-The difference in T and dT/dt is almost all seasonal cycle: 12 monthly means
-against 4 smooth harmonics differ by 0.105 °C, while the rate of the
-filtered anomaly alone differs by 0.010 °C/month (its spread: 0.164). The
-loops in the figure therefore have the same shape and timing; the weekly ones
-are smoother around the seasonal turns.
+
+**What is sampling and what is climatology.** The monthly analysis rerun
+with the weekly method's seasonal cycle (mean plus 4 harmonics on the day of
+the year, fitted to the monthly values at mid-month) instead of its 12
+monthly means, same window:
+
+| RMS difference | T (°C) | dT/dt (°C/month) | Filtered anomaly (°C) |
+|---|---|---|---|
+| Monthly, 12 means against monthly, 4 harmonics (climatology) | 0.009 | 0.006 | 0.006 |
+| Weekly against monthly with 4 harmonics (sampling and source) | 0.115 | 0.111 | 0.047 |
+| Weekly against monthly with 12 means (published default) | 0.116 | 0.111 | 0.048 |
+
+The choice of climatology explains almost nothing: 4 harmonics reproduce
+the 12 monthly means to 0.009 °C. The whole difference is between the two
+records. It is not a date convention (shifting the weekly cycle by the best
+whole day, −1, still leaves 0.080 °C), but a small difference in the
+seasonal cycle of the two NOAA products: the annual harmonic has amplitude
+2.86 °C in the monthly record and 2.75 °C in the weekly one (4% less), and
+the phase differs by 1.1 days. The anomalies, once the cycle is removed,
+agree to 0.047 °C and the rate of the anomaly alone to 0.010 °C/month (its
+spread: 0.164). The loops in the figure have the same shape and timing; the
+weekly one sits slightly inside the monthly one where the seasonal swing is
+largest. Whether sampling alone (a week against a month mean) or a different
+processing of OISST causes the amplitude gap is not settled here; the gap is
+a property of the files and does not depend on the filter.
 
 Peaks of the filtered anomaly (the time panel's bold line) and of the
 observed anomaly, inside each event's months (`config.yaml` events):

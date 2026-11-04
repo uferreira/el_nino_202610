@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-from enso import download, series
+from enso import download, series, weekly
 from enso.config import ROOT, SERIES_DIR, Config, Dataset, load_config
 
 LEGACY_SST_FILE = ROOT / "data" / "sst1950_1981.txt"
@@ -75,8 +75,15 @@ SOURCES = {
 }
 
 
+def weekly_path(directory: Path = SERIES_DIR) -> Path:
+    """data/weekly/wksst.csv, next to the series directory."""
+    return Path(directory).parent / "weekly" / "wksst.csv"
+
+
 def fetch_one(ds: Dataset, cfg: Config, directory: Path = SERIES_DIR) -> str:
     """Fetch one dataset; return a one-line status."""
+    if ds.is_weekly:       # the weekly file, a column of which is the dataset
+        return weekly.fetch(weekly_path(directory), ds.key)
     record = SOURCES[ds.source["type"]](ds, cfg)
     if series.path_for(ds.key, directory).exists():
         old = series.read(ds.key, directory)

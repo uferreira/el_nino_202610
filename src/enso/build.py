@@ -29,7 +29,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from enso import series, status
+from enso import series, status, weekly
 from enso.config import DOCS_DIR, Config, load_config
 from enso.site import theme
 from enso.site.pages import all_pages
@@ -66,7 +66,8 @@ def _day(iso: str) -> str:
 
 
 def _footer(cfg: Config) -> dict:
-    fetched = sorted({series.read(d.key).fetched for d in cfg.datasets})
+    fetched = sorted({(weekly.read() if d.is_weekly else series.read(d.key)).fetched
+                      for d in cfg.datasets})
     # Per group, the oldest "last checked" date of its datasets (data/status).
     days: dict[str, list[str]] = {}
     for d in cfg.datasets:

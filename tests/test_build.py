@@ -7,7 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from enso import model, series
+from enso import model, series, weekly
 from enso.build import build
 from enso.config import load_config
 from enso.phasespace import compute
@@ -16,6 +16,12 @@ from enso.site.registry import Control, Option
 
 CFG = load_config()
 P = CFG.filter.provisional_months
+PW = weekly.provisional_weeks(CFG.filter)      # the same span in weeks: 43
+
+
+def _p(key):
+    """Samples in the provisional zone, and in a year, of dataset ``key``."""
+    return (PW, 52) if CFG.dataset(key).is_weekly else (P, 12)
 ROLES_LOOP = {"history", "highlight", "trace", "tail", "head", "recent", "now", "cursor", "hover"}
 ROLES_TIME = {"series", "anomaly", "highlight", "recent", "now", "cursor"}
 
@@ -99,7 +105,8 @@ def test_history_is_drawn_in_yearly_paths_for_density(site, key):
     data = _phase(site, key)
     paths = [t for t in data["figures"]["phase"]["data"]
              if t["meta"]["role"] == "history" and not t["meta"].get("provisional")]
-    assert len(paths) == -(-(len(data["periods"]) - P) // 12)   # one per 12 months
+    prov, year = _p(key)
+    assert len(paths) == -(-(len(data["periods"]) - prov) // year)   # one per 12 months (52 weeks)
     assert all(t["line"]["width"] <= 1.0 for t in paths)
 
 
@@ -108,7 +115,8 @@ def test_provisional_end_is_dashed_and_shaded(site, key):
     data = _phase(site, key)
     n, k = len(data["periods"]), data["ndots"]
     p = data["provisional_from"]
-    assert p == n - P and data["provisional_months"] == P
+    prov, _ = _p(key)
+    assert p == n - prov and data["provisional_samples"] == prov and data["provisional_months"] == P
     prov = [t for t in data["figures"]["phase"]["data"] if t["meta"].get("provisional")]
     assert prov and all("dash" in t["line"] for t in prov)
     hist_prov = next(t for t in prov if t["meta"]["role"] == "history")
@@ -149,10 +157,11 @@ def test_readout_shows_the_observation_and_a_provisional_rate(site, key):
 @pytest.mark.parametrize("key", [d.key for d in CFG.datasets])
 def test_event_indices_point_at_the_event_months(site, key):
     data = _phase(site, key)
+    months = [p[:7] for p in data["periods"]]          # a week belongs to its month
     for ev, cfg_ev in zip(data["events"], CFG.events):
-        assert data["periods"][ev["i0"]] == cfg_ev.start
-        end = cfg_ev.end or data["periods"][-1]
-        assert data["periods"][ev["i1"]] == end
+        assert months[ev["i0"]] == cfg_ev.start and (ev["i0"] == 0 or months[ev["i0"] - 1] < cfg_ev.start)
+        end = cfg_ev.end or months[-1]
+        assert months[ev["i1"]] == end and (ev["i1"] == len(months) - 1 or months[ev["i1"] + 1] > end)
 
 
 # ---- compare --------------------------------------------------------------
@@ -173,6 +182,96 @@ def test_compare_uses_y_over_sigma_x(site, key):
         np.testing.assert_allclose(y, ps.V / sigma, atol=1e-4)
     for t in data["traces"]["loop"] + data["traces"]["time"]:
         assert "color" not in json.dumps(t)          # coloured by slot in the browser
+
+
+# ---- the weekly dataset -----------------------------------------------------
+
+def test_weekly_dataset_sits_after_nino12_in_the_sst_group(site):
+    keys = [d.key for d in CFG.datasets]
+    assert keys[:2] == ["nino12", "nino12w"] and CFG.dataset("nino12w").group.key == "sst"
+    assert CFG.datasets[0].key == "nino12" == CFG.current_event.dataset       # monthly stays the default
+    assert 'value="nino12" selected' in _html(site) or re.search(r'<option value="nino12" selected', _html(site))
+    assert "NINO1+2 weekly" in _html(site)
+
+
+def test_weekly_phase_data_is_in_weeks_with_a_43_week_provisional_zone(site):
+    data = _phase(site, "nino12w")
+    n = len(data["periods"])
+    assert (data["ndots"], data["play"]["unit"], data["play"]["step"], data["play"]["tail"]) == (1, 1, 1, 52)
+    assert data["periods"][0] == "1981-11-04" and data["periods"][-1] == str(weekly.read().week[-1])
+    assert PW == 43 and data["provisional_from"] == n - 43 and data["provisional_span"] == "43 weeks"
+    assert len(data["loop"]["x"]) == n and data["window"].endswith(f"{n} weeks")
+    # weekly dates, one Wednesday per week
+    d = np.array(data["periods"], dtype="datetime64[D]")
+    assert (np.diff(d).astype(int) == 7).all()
+    # speeds are in weeks per second, with a default that is one of them
+    play = data["play"]
+    assert play["unit_name"] == "week" and play["speed_default"] in [o["value"] for o in play["speeds"]]
+    assert all(o["label"].endswith("weeks/s") for o in play["speeds"])
+    assert _phase(site, "nino12")["play"]["speeds"][1] == {"value": "6", "label": "6 months/s"}
+    # the shaded zone and the dashed loop start at the same week
+    shade = next(s for s in data["figures"]["time"]["layout"]["shapes"] if s.get("name") == "provisional")
+    assert shade["x0"] == data["periods"][-43]
+
+
+def test_weekly_readout_names_the_week_and_the_provisional_zone(site):
+    now = _phase(site, "nino12w")["now"]
+    rec = weekly.read()
+    assert now["month"].startswith("Week centred on ") and now["through"].startswith(str(int(str(rec.week[-1])[8:10])))
+    assert now["observed"] == f"{rec.values['nino12'][-1]:.2f} °C" and "43 weeks" in now["note"]
+    assert now["rate"].endswith("°C/month") and now["checked"] and now["checked"] != "never recorded"
+    assert now["source_name"] == "NOAA CPC"
+
+
+def test_weekly_events_cover_the_same_months_as_monthly(site):
+    w, m = _phase(site, "nino12w"), _phase(site, "nino12")
+    assert [e["label"] for e in w["events"]] == [e["label"] for e in m["events"]]
+    assert [e["range"] for e in w["events"]] == [e["range"] for e in m["events"]]
+    for e in w["events"]:           # about 4.35 weeks per month
+        assert e["i1"] > e["i0"]
+
+
+def test_weekly_time_hover_shows_the_date(site):
+    traces = _phase(site, "nino12w")["figures"]["time"]["data"]
+    assert all("%d %b %Y" in t["hovertemplate"] for t in traces if t["meta"]["role"] in ("anomaly",))
+
+
+def test_compare_weekly_record_has_a_calendar_map(site):
+    w, f = _load(site, "data/compare/nino12w.json"), _load(site, "data/compare/frame.json")
+    k = f["play"]["step"]
+    assert len(w["cal_map"]) == (len(f["calendar"]) - 1) * k + 1 and w["weekly"] is True
+    cal = np.array(w["cal_map"])
+    assert cal[0] == -1 and (np.diff(cal) >= 0).all() and cal[-1] >= len(w["periods"]) - 20
+    # each calendar point (k per month, the first at mid-month) shows the week nearest its date
+    for i in (len(cal) // 3, len(cal) // 2 + 2, len(cal) - 1):
+        day = np.datetime64(f["calendar"][i // k] + "-15") + np.timedelta64(round((i % k) * 30.4375 / k), "D")
+        assert abs((np.datetime64(w["periods"][cal[i]]) - day).astype(int)) <= 4
+    assert w["play"] == {"step": 1, "tail": 52}
+    assert _load(site, "data/compare/nino12.json")["cal_map"] is None            # monthly: unchanged
+    assert f["calendar"][0] == "1975-11" and f["calendar"][-1] == _phase(site, "nino12")["periods"][-1]
+
+
+def test_compare_weekly_and_monthly_nino12_share_the_normalised_plane(site):
+    w, m = _load(site, "data/compare/nino12w.json"), _load(site, "data/compare/nino12.json")
+    xw, xm = np.array(w["loop"]["x"]), np.array(m["loop"]["x"])
+    assert abs(xw.mean()) < 1e-3 and xw.std(ddof=1) == pytest.approx(1, abs=1e-3)
+    assert abs(xm.mean()) < 1e-3
+    assert w["extent"]["x"][0] < 0 < w["extent"]["x"][1]
+
+
+def test_compare_weekly_section_has_one_dot_per_year(site):
+    w = _load(site, "data/compare/nino12w.json")
+    for m in range(12):
+        (trace,) = w["traces"]["section"][m]
+        years = trace["customdata"]
+        assert len(years) == len(set(years))              # one week per year, not one per week of the month
+
+
+def test_footer_and_checked_dates_cover_the_weekly_file(site):
+    html = _html(site)
+    assert "Sea surface temperature" in html
+    from enso import status
+    assert status.checked_label("noaa_sst", "nino12w")
 
 
 def test_compare_section_has_one_dot_per_year_and_month(site):
@@ -282,7 +381,8 @@ def test_phase_loop_has_an_empty_play_layer_above_the_record(site, key):
     first_play = next(i for i, t in enumerate(fig["data"]) if t["meta"].get("play"))
     assert roles.index("history") < first_play < roles.index("cursor")
     k = data["ndots"]
-    assert data["play"] == {"unit": k, "step": k, "tail": 12 * k}
+    year = 52 if CFG.dataset(key).is_weekly else 12              # the 12-month tail, in samples
+    assert {n: data["play"][n] for n in ("unit", "step", "tail")} == {"unit": k, "step": k, "tail": year * k}
     # The "now" label is named, so playing can hide it.
     assert [a.get("name") for a in fig["layout"]["annotations"]].count("now") == 1
 
@@ -318,10 +418,10 @@ def test_compare_plays_observed_records_on_one_calendar(site):
     assert frame["play"] == {"unit": k, "step": k, "tail": 12 * k}
     for d in CFG.datasets:
         rec = _load(site, f"data/compare/{d.key}.json")
-        assert rec["periods"][0] in cal and rec["periods"][-1] in cal
+        assert rec["periods"][0][:7] in cal and rec["periods"][-1][:7] in cal
         assert len([t for t in rec["traces"]["loop"] if t["meta"].get("play")]) == 6
         assert [t["meta"]["role"] for t in rec["traces"]["time"]] == ["series", "highlight", "cursor"]
-    assert cal[0] == min(_load(site, f"data/compare/{d.key}.json")["periods"][0] for d in CFG.datasets)
+    assert cal[0] == min(_load(site, f"data/compare/{d.key}.json")["periods"][0][:7] for d in CFG.datasets)
     # The model has no calendar: nothing of it plays.
     rec = _load(site, "data/compare/model.json")
     assert not [t for t in rec["traces"]["loop"] if t["meta"].get("play")]
@@ -390,7 +490,8 @@ def test_build_is_deterministic(site, tmp_path):
 
 def test_data_files_stay_small(site):
     for path in (site / "data").rglob("*.json"):
-        assert path.stat().st_size < 250_000, path.name
+        # a weekly record has about 4.35 times the samples of a monthly one (a point per week, not 5 per month)
+        assert path.stat().st_size < (400_000 if path.stem == "nino12w" else 250_000), path.name
 
 
 def test_a_new_option_is_one_registry_entry():

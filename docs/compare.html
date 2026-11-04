@@ -42,6 +42,7 @@
   <div class="field__row">
     <select id="ctl-a" name="a" data-control>
 <optgroup label="Sea surface temperature">        <option value="nino12" selected>NINO1+2</option>
+        <option value="nino12w">NINO1+2 weekly</option>
         <option value="nino3">NINO3 anomaly</option>
         <option value="nino34">NINO3.4 anomaly</option>
         <option value="nino4">NINO4 anomaly</option>
@@ -58,6 +59,7 @@
   <div class="field__row">
     <select id="ctl-b" name="b" data-control>
 <optgroup label="Sea surface temperature">        <option value="nino12">NINO1+2</option>
+        <option value="nino12w">NINO1+2 weekly</option>
         <option value="nino3">NINO3 anomaly</option>
         <option value="nino34">NINO3.4 anomaly</option>
         <option value="nino4">NINO4 anomaly</option>
@@ -75,6 +77,7 @@
     <select id="ctl-c" name="c" data-control>
         <option value="none" selected>None</option>
 <optgroup label="Sea surface temperature">        <option value="nino12">NINO1+2</option>
+        <option value="nino12w">NINO1+2 weekly</option>
         <option value="nino3">NINO3 anomaly</option>
         <option value="nino34">NINO3.4 anomaly</option>
         <option value="nino4">NINO4 anomaly</option>
@@ -225,7 +228,7 @@ for the same month.</p>
 
 <footer class="site-footer">
   <div class="wrap">
-    <p>Data: <a href="https://www.cpc.ncep.noaa.gov/data/indices/">NOAA CPC</a> SST indices (monthly), <a href="https://uhslc.soest.hawaii.edu/">UHSLC</a> tide gauges (hourly, averaged to months). Data last changed 4 Nov 2026; last checked for new data: Sea surface temperature 4 Nov 2026, sea level 4 Nov 2026.</p>
+    <p>Data: <a href="https://www.cpc.ncep.noaa.gov/data/indices/">NOAA CPC</a> SST indices (monthly, and weekly for NINO1+2), <a href="https://uhslc.soest.hawaii.edu/">UHSLC</a> tide gauges (hourly, averaged to months). Data last changed 4 Nov 2026; last checked for new data: Sea surface temperature 4 Nov 2026, sea level 4 Nov 2026.</p>
     <p>Fourier low-pass, HN1 = 10, HN2 = 9 (full periods under about 18 to 20 months removed). All numbers are computed in Python; this page only draws them. <a href="https://github.com/uferreira/el_nino_202610">Source</a>.</p>
   </div>
 </footer>

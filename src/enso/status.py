@@ -16,10 +16,11 @@ red. The build reads ``checked`` for the "last checked" date in each
 page's readout and footer, so a source that stopped updating shows on the site.
 
 ``--behind`` downloads the source's latest month (NOAA CPC: the last row of
-sstoi.indices) and exits 1, naming the datasets, when the source has a later
-month than the site serves (docs/data/phase/<key>.json). The SST workflow
-runs it after every update, so a month NOAA has and the site lacks turns
-that run red.
+sstoi.indices; for the weekly dataset, the last week of wksst9120.for) and
+exits 1, naming the datasets, when the source has a later month (week) than
+the site serves (docs/data/phase/<key>.json). The SST workflow runs it after
+every update, so a month or week NOAA has and the site lacks turns that run
+red.
 """
 
 from __future__ import annotations
@@ -120,7 +121,19 @@ def latest_in_sstoi(text: str) -> str:
     return f"{y:04d}-{m:02d}"
 
 
+def noaa_weekly_latest() -> str:
+    """Latest week in NOAA CPC's wksst9120.for, as 'YYYY-MM-DD'."""
+    from enso import weekly
+    return weekly.latest_week(download_text(weekly.URL, "NOAA weekly SST indices (wksst9120.for)"))
+
+
+def download_text(url: str, label: str) -> str:
+    from enso import download
+    return download._fetch(url, label).text
+
+
 UPSTREAM = {"noaa_sst": noaa_sst_latest}   # source type -> latest month at the source
+UPSTREAM_WEEKLY = {"noaa_sst": noaa_weekly_latest}   # ... and latest week, for weekly datasets
 
 
 def site_latest(key: str, docs: Path = DOCS_DIR) -> str | None:
@@ -155,12 +168,18 @@ def main(argv: list[str] | None = None) -> int:
     source = args.check or args.behind
     keys = [d.key for d in cfg.datasets if d.source["type"] == source]
     if args.behind:
-        latest = UPSTREAM[source]()
-        problems = behind(latest, keys)
+        problems, said = [], []
+        for weekly_keys, latest_of in ((False, UPSTREAM), (True, UPSTREAM_WEEKLY)):
+            group = [d.key for d in cfg.datasets if d.source["type"] == source and d.is_weekly == weekly_keys]
+            if not group:
+                continue
+            latest = latest_of[source]()
+            problems += behind(latest, group)
+            said.append(f"{latest} for {len(group)} {'weekly' if weekly_keys else 'monthly'} datasets")
         for p in problems:
             print(f"::error::site behind {p}" if gha else f"BEHIND {p}")
         if not problems:
-            print(f"{source}: the site has the source's latest month ({latest}) for all {len(keys)} datasets")
+            print(f"{source}: the site has the source's latest month or week ({'; '.join(said)})")
         return 1 if problems else 0
     problems = stale(source, keys, args.max_age_days)
     for p in problems:

@@ -10,8 +10,7 @@ its own files:
 
 * data/series/<key>.csv for the datasets of its source type,
 * data/status/<source type>.json (with --status),
-* its extra files (EXTRA_FILES: the SST writer also keeps the weekly SST
-  record, data/weekly/wksst.csv),
+* data/weekly/wksst.csv for the weekly dataset (the SST writer's too),
 * docs/, which is shared but is a pure function of the committed code and
   data, so either writer can rebuild it from scratch (the footer's
   "data fetched" date is the latest date over all records, for example).
@@ -37,13 +36,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from enso import series, status
+from enso import series, status, weekly
 from enso.config import ROOT, Config, load_config
 
 EXIT_OK, EXIT_PARTIAL, EXIT_FAILED = 0, 1, 2
 
-# Files a writer keeps besides its datasets' series: source type -> paths.
-EXTRA_FILES = {"noaa_sst": ["data/weekly/wksst.csv"]}
+WEEKLY_PATH = "data/weekly/wksst.csv"     # the file behind the weekly dataset
 
 
 class PublishError(RuntimeError):
@@ -69,16 +67,7 @@ class Publisher:
 
     def fetch(self) -> list[tuple[str, str]]:
         from enso import fetch
-        results = fetch.fetch_many(self.keys, self.cfg)
-        if self.source_type == "noaa_sst":
-            from enso import weekly
-            try:
-                line = weekly.fetch(self.root / EXTRA_FILES["noaa_sst"][0])
-            except Exception as exc:  # the monthly update goes on without it
-                line = f"FAILED weekly: {exc}"
-            log(line)
-            results.append(("weekly", line))
-        return results
+        return fetch.fetch_many(self.keys, self.cfg)
 
     def build(self) -> None:
         from enso import build
@@ -90,19 +79,22 @@ class Publisher:
 
     def message(self) -> str:
         group = self.cfg.dataset(self.keys[0]).group.label
-        last = max(series.read(k, self.root / "data" / "series").last_period for k in self.keys)
+        monthly = [k for k in self.keys if not self._is_weekly(k)]
+        last = max(series.read(k, self.root / "data" / "series").last_period for k in monthly)
         extra = ""
-        if self.source_type == "noaa_sst" and (self.root / EXTRA_FILES["noaa_sst"][0]).exists():
-            from enso import weekly
-            extra = f", weekly through {weekly.read(self.root / EXTRA_FILES['noaa_sst'][0]).last_week}"
+        if len(monthly) < len(self.keys):
+            extra = f", weekly through {weekly.read(self.root / WEEKLY_PATH).last_week}"
         return f"data: {group} through {last}{extra} [auto]"
 
     # -- own files ----------------------------------------------------------
 
+    def _is_weekly(self, key: str) -> bool:
+        return getattr(self.cfg.dataset(key), "is_weekly", False)
+
     @property
     def data_paths(self) -> list[str]:
-        paths = [f"data/series/{k}.csv" for k in self.keys]
-        paths += EXTRA_FILES.get(self.source_type, [])
+        paths = [WEEKLY_PATH if self._is_weekly(k) else f"data/series/{k}.csv" for k in self.keys]
+        paths = list(dict.fromkeys(paths))
         if self.write_status:
             paths.append(f"data/status/{self.source_type}.json")
         return paths

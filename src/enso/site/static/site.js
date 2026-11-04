@@ -188,17 +188,52 @@
     return { x: x, y: y };
   }
 
-  /** Month indices covered by a dragged range: dates ("YYYY-MM...") or numbers. */
+  /** Indices covered by a range: periods are months ("YYYY-MM"), weeks
+   * ("YYYY-MM-DD") or numbers. The range is cut to the periods' precision, and
+   * a period is compared at the precision of the bound (a month bound takes
+   * every week of that month). */
   function rangeToIndices(periods, range) {
     var numeric = typeof periods[0] === 'number';
-    var a = numeric ? +range[0] : String(range[0]).slice(0, 7);
-    var b = numeric ? +range[1] : String(range[1]).slice(0, 7);
+    var n = numeric ? 0 : periods[0].length;
+    var a = numeric ? +range[0] : String(range[0]).slice(0, n);
+    var b = numeric ? +range[1] : String(range[1]).slice(0, n);
+    var cut = function (p, s) { return numeric ? p : p.slice(0, s.length); };
     var i0 = -1, i1 = -1;
     periods.forEach(function (p, i) {
-      if (p >= a && i0 < 0) i0 = i;
-      if (p <= b) i1 = i;
+      if (cut(p, a) >= a && i0 < 0) i0 = i;
+      if (cut(p, b) <= b) i1 = i;
     });
     return (i0 >= 0 && i1 >= i0) ? { i0: i0, i1: i1 } : null;
+  }
+
+  /** Index of period p in another record's periods, across cadences: the same
+   * period if there is one, else the first one in the same month, else the
+   * record's start or end when p is outside it. */
+  function findPeriod(periods, p) {
+    var i = periods.indexOf(p);
+    if (i >= 0 || !p) return i;
+    var m = p.slice(0, 7);
+    for (i = 0; i < periods.length; i++) if (periods[i].slice(0, 7) === m) return i;
+    // Outside this record (another cadence starts later or ends earlier): its nearest end.
+    return m < periods[0].slice(0, 7) ? 0 : m > periods[periods.length - 1].slice(0, 7) ? periods.length - 1 : -1;
+  }
+
+  /** The player's speed choices for this dataset's step (months or weeks per
+   * second), from Python (data.play.speeds). The pace carries over when the
+   * unit stays the same; otherwise the default for the new unit. */
+  function setSpeeds(panel, play) {
+    var sel = $(panel, '[data-player-speed]');
+    if (!sel || !play || !play.speeds || sel.dataset.unit === play.unit_name) return;
+    sel.textContent = '';
+    play.speeds.forEach(function (o) {
+      var opt = document.createElement('option');
+      opt.value = o.value; opt.textContent = o.label;
+      sel.appendChild(opt);
+    });
+    sel.value = play.speed_default;
+    sel.dataset.unit = play.unit_name;
+    var scrub = $(panel, '[data-player-scrub]');
+    if (scrub) scrub.setAttribute('aria-label', 'Position in time, by ' + play.unit_name);
   }
 
   function hoverIndex(ev, roles) {
@@ -607,9 +642,10 @@
         var keep = null;
         if (playing()) {
           var k0 = data.play.step, at = player.position();
-          keep = { period: data.periods[Math.floor(at / k0)], frac: at % k0 };
+          keep = { period: data.periods[Math.floor(at / k0)], frac: at % k0, step: k0 };
         }
         data = json;
+        setSpeeds(panel, data.play);
         if (pending !== null) {           // first load: event from the URL or the page default
           highlight = eventHighlight(pending);
           pending = null;
@@ -623,8 +659,8 @@
         var state = $(panel, '.now__state');
         if (state && data.now) state.dataset.rising = String(data.now.rising);
         return render().then(function () {
-          var m = keep ? data.periods.indexOf(keep.period) : -1;
-          if (player) player.sync(m >= 0 ? m * data.play.step + keep.frac : null);
+          var m = keep ? findPeriod(data.periods, keep.period) : -1;
+          if (player) player.sync(m >= 0 ? m * data.play.step + (keep.step === data.play.step ? keep.frac : 0) : null);
         });
       }
     };
@@ -803,13 +839,21 @@
         state.slots.forEach(function (s) {
           var d = s.data;
           if (!d.calendar) return;
-          var off = f.calendar.indexOf(d.periods[0]) * k;      // this record's first month on the calendar
-          var j = Math.min(i - off, d.loop.x.length - 1), from = Math.max(0, a - off);
+          // This record's loop point at calendar point i. A weekly record has its
+          // own map (Python: cal_map); a monthly one is offset by its first month.
+          var step = d.play ? d.play.step : k, j, from;
+          if (d.cal_map) {
+            var last = d.cal_map.length - 1;
+            j = d.cal_map[Math.min(i, last)]; from = Math.max(0, d.cal_map[Math.min(a, last)]);
+          } else {
+            var off = f.calendar.indexOf(d.periods[0]) * k;      // first month on the calendar
+            j = Math.min(i - off, d.loop.x.length - 1); from = Math.max(0, a - off);
+          }
           frames.push(playFrame(loop, d.loop, j, from, {
-            split: d.provisional_from * k, tail: f.play.tail, step: k,
+            split: d.provisional_from * step, tail: d.play ? d.play.tail : f.play.tail, step: step,
             into: highlight ? { role: 'highlight' } : null
           }, { slot: s.slot }));
-          var m = j >= from ? Math.floor(j / k) : -1;
+          var m = j >= from ? Math.floor(j / step) : -1;
           var src = time.data[traceIndex(time, { role: 'series', slot: s.slot })];
           var c = traceIndex(time, { role: 'cursor', slot: s.slot });
           if (c >= 0) { cur.idx.push(c); cur.x.push(m >= 0 ? [src.x[m]] : []); cur.y.push(m >= 0 ? [src.y[m]] : []); }
@@ -890,9 +934,19 @@
       if (player) player.sync();
     }
 
+    /* Index of the sample of record d at date x ("YYYY-MM[-DD]"): the month
+     * that holds it for a monthly record, the nearest week for a weekly one. */
+    function sampleAt(d, x) {
+      if (d.periods[0].length === 7) return d.periods.indexOf(x.slice(0, 7));
+      if (!d._t) d._t = d.periods.map(function (p) { return Date.parse(p); });
+      var t = Date.parse(x.length === 7 ? x + '-15' : x.slice(0, 10)), best = -1, gap = Infinity;
+      d._t.forEach(function (u, i) { var e = Math.abs(u - t); if (e < gap) { gap = e; best = i; } });
+      return gap <= 4 * 86400000 ? best : -1;
+    }
+
     function cursorAt(period) {
       state.slots.forEach(function (s) {
-        var m = period && s.data.calendar ? s.data.periods.indexOf(period) : -1;
+        var m = period && s.data.calendar ? sampleAt(s.data, period) : -1;
         var hv = s.data.month;
         setXY(loop, { role: 'cursor', slot: s.slot }, m >= 0 ? [hv.x[m]] : [], m >= 0 ? [hv.y[m]] : []);
       });
@@ -903,7 +957,7 @@
       bound = true;
       time.on('plotly_hover', function (ev) {
         if (!ev.event) return;   // hover sent from the loop: leave the loop alone
-        cursorAt(String(ev.points[0].x).slice(0, 7));
+        cursorAt(String(ev.points[0].x));
       });
       time.on('plotly_unhover', function () { cursorAt(null); });
       loop.on('plotly_hover', function (ev) {

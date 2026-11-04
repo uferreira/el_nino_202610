@@ -20,9 +20,9 @@ filter:
   # Why 10: see METHODS.md, "Provisional end".
   provisional_months: 10
 
-# Weekly SST (NOAA CPC wksst9120.for, enso.weekly): fetched with the monthly
-# SST into data/weekly/wksst.csv, not shown on the site yet. The filter is the
-# one above in weekly units (HN1, HN2 x 30.4375 / 7; METHODS.md, "Weekly SST").
+# Weekly SST (NOAA CPC wksst9120.for, enso.weekly), kept in data/weekly/wksst.csv
+# and offered as the dataset nino12w. The filter is the one above in weekly
+# units (HN1, HN2 x 30.4375 / 7; METHODS.md, "Weekly SST").
 weekly:
   harmonics: 4        # annual harmonics in the fitted seasonal cycle (NINO1+2)
 
@@ -43,7 +43,8 @@ groups:
 #     absolute     filtered value with its seasonal cycle (NINO1+2 SST, °C)
 #     anomaly      the source already removed the seasonal cycle (NOAA anomalies)
 #     record_mean  filtered value with seasonal cycle, minus the window mean
-#   cadence: monthly (a weekly series would set "weekly" here)
+#   cadence: monthly, or weekly (NOAA weekly SST, enso.weekly: its source type is
+#            noaa_sst too, so the SST writer downloads it with the monthly files)
 datasets:
   - key: nino12
     label: NINO1+2
@@ -52,6 +53,13 @@ datasets:
     quantity: absolute
     cadence: monthly
     source: {type: noaa_sst, column: SST0}
+  - key: nino12w
+    label: NINO1+2 weekly
+    long_label: NINO1+2 SST, weekly (0 to 10°S, 90 to 80°W)
+    group: sst
+    quantity: absolute
+    cadence: weekly
+    source: {type: noaa_sst, column: nino12}     # a column of data/weekly/wksst.csv
   - key: nino3
     label: NINO3 anomaly
     long_label: NINO3 SST anomaly (5°N to 5°S, 150 to 90°W)

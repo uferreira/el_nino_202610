@@ -13,7 +13,9 @@ SERIES_DIR = ROOT / "data" / "series"
 DOCS_DIR = ROOT / "docs"
 
 QUANTITIES = ("absolute", "anomaly", "record_mean")
-CADENCES = {"monthly": "month"}  # cadence -> time step name used in units
+# cadence -> time step of the rate unit. A weekly record is sampled every week
+# but its rate is still per month (weekly.py converts it), so the two compare.
+CADENCES = {"monthly": "month", "weekly": "month"}
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,10 @@ class Dataset:
     quantity: str
     cadence: str
     source: dict
+
+    @property
+    def is_weekly(self) -> bool:
+        return self.cadence == "weekly"
 
     @property
     def step(self) -> str:

@@ -17,14 +17,21 @@ from datetime import date
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from enso import series, status
+from enso import series, status, weekly
 from enso.config import Config, Dataset
 from enso.phasespace import PhaseSeries, compute, month_label
-from enso.site.figures import (export, fmt, history_paths, month_after, nice_step, padded,
+from enso.site.figures import (axis_end, export, fmt, history_paths, nice_step, padded,
                                 play_traces, rnd)
 from enso.site.registry import Control, Option, Page, Panel, Player
 
 RECENT_MONTHS = 12
+# Animation speeds, in samples (months, or weeks) per second. Monthly: 6 plays
+# the whole record in under two minutes, an El Niño in about three seconds;
+# weekly: 26 weeks is the same pace.
+SPEEDS = {
+    "monthly": {"values": (3, 6, 12, 24, 48), "default": "6", "unit": "month"},
+    "weekly": {"values": (13, 26, 52, 104, 208), "default": "26", "unit": "week"},
+}
 DASH = "4px,3px"
 # Decimals kept in the JSON and shown to readers, per unit: (value, rate).
 DECIMALS = {"°C": (3, 4), "mm": (1, 2)}
@@ -63,7 +70,10 @@ def phase_series(cfg: Config, key: str) -> PhaseSeries:
     """The analysed record, computed once per config (Compare reuses it)."""
     hit = _SERIES.get((id(cfg), key))
     if hit is None or hit[0] is not cfg:
-        hit = _SERIES[(id(cfg), key)] = (cfg, compute(series.read(key), cfg.dataset(key), cfg.filter))
+        ds = cfg.dataset(key)
+        ps = (weekly.to_phase_series(weekly.read(), ds, cfg) if ds.is_weekly
+              else compute(series.read(key), ds, cfg.filter))
+        hit = _SERIES[(id(cfg), key)] = (cfg, ps)
     return hit[1]
 
 
@@ -71,9 +81,18 @@ def phase_series(cfg: Config, key: str) -> PhaseSeries:
 # Figures
 # ---------------------------------------------------------------------------
 
+def provisional_samples(ps: PhaseSeries, cfg: Config) -> int:
+    """Samples in the provisional zone: 10 months, or the same span in weeks (43)."""
+    return weekly.provisional_weeks(cfg.filter) if ps.weekly else cfg.filter.provisional_months
+
+
+def provisional_span(ps: PhaseSeries, cfg: Config) -> str:
+    return f"{provisional_samples(ps, cfg)} {'weeks' if ps.weekly else 'months'}"
+
+
 def first_provisional(ps: PhaseSeries, cfg: Config) -> int:
-    """Index of the first provisional month."""
-    return max(ps.n_months - cfg.filter.provisional_months, 0)
+    """Index of the first provisional sample."""
+    return max(ps.n_months - provisional_samples(ps, cfg), 0)
 
 
 def phase_figure(ps: PhaseSeries, cfg: Config) -> dict:
@@ -84,11 +103,11 @@ def phase_figure(ps: PhaseSeries, cfg: Config) -> dict:
     lab = axis_labels(ds)
     n, k = ps.n_months, ps.ndots
     p = first_provisional(ps, cfg)
-    r = max(n - RECENT_MONTHS, 0)
+    r = max(n - ps.recent, 0)
     labels = [month_label(q) + (" (provisional)" if i >= p else "") for i, q in enumerate(ps.periods)]
 
     fig = go.Figure()
-    fig.add_traces(history_paths(ps.T, ps.V, 12 * k, p * k, dec))
+    fig.add_traces(history_paths(ps.T, ps.V, ps.year_points, p * k, dec))
     fig.add_scatter(x=rnd(ps.T[p * k:], dv), y=rnd(ps.V[p * k:], dr), mode="lines",
                     line={"width": 1.25, "dash": DASH}, hoverinfo="skip",
                     meta={"role": "history", "provisional": True})
@@ -169,6 +188,8 @@ def time_figure(ps: PhaseSeries, cfg: Config) -> dict:
     p = first_provisional(ps, cfg)
     cycle = ps.has_seasonal_cycle
     unit = ds.unit
+    recent = ps.recent
+    day = "%d " if ps.weekly else ""        # a week is named by its date
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.09,
                         specs=[[{"secondary_y": cycle}], [{}]])
@@ -181,7 +202,7 @@ def time_figure(ps: PhaseSeries, cfg: Config) -> dict:
         """Highlight, recent tail, current point and cursor for one source line."""
         add({"x": [], "y": [], "mode": "lines", "line": {"width": 2.75}, "hoverinfo": "skip",
              "meta": {"role": "highlight", "row": row, "of": of}}, row_i, secondary)
-        add({"x": x[-RECENT_MONTHS:], "y": rnd(y[-RECENT_MONTHS:], decimals), "mode": "lines",
+        add({"x": x[-recent:], "y": rnd(y[-recent:], decimals), "mode": "lines",
              "line": {"width": 2.25}, "hoverinfo": "skip",
              "meta": {"role": "recent", "row": row, "of": of}}, row_i, secondary)
         add({"x": [x[-1]], "y": [round(float(y[-1]), decimals)], "mode": "markers",
@@ -197,13 +218,13 @@ def time_figure(ps: PhaseSeries, cfg: Config) -> dict:
              "hovertemplate": f"{lab['value_short']} %{{y:.{sv}f}} {unit}<extra></extra>",
              "meta": {"role": "series", "row": "T"}}, 1, False)
     add({"x": x, "y": rnd(ps.anomaly, dv), "mode": "lines", "line": {"width": 2},
-         "hovertemplate": f"<b>%{{x|%b %Y}}</b>  {anomaly_label} %{{y:+.{sv}f}} {unit}<extra></extra>",
+         "hovertemplate": f"<b>%{{x|{day}%b %Y}}</b>  {anomaly_label} %{{y:+.{sv}f}} {unit}<extra></extra>",
          "meta": {"role": "anomaly", "row": "T"}}, 1, True)
     family(ps.anomaly, dv, "T", "anomaly", True, 1)
 
     # Row 2: rate.
     add({"x": x, "y": rnd(ps.V_month, dr), "mode": "lines", "line": {"width": 1.25},
-         "hovertemplate": f"<b>%{{x|%b %Y}}</b>  Rate %{{y:+.{sr}f}} {ds.rate_unit}<extra></extra>",
+         "hovertemplate": f"<b>%{{x|{day}%b %Y}}</b>  Rate %{{y:+.{sr}f}} {ds.rate_unit}<extra></extra>",
          "meta": {"role": "series", "row": "V"}}, 2)
     family(ps.V_month, dr, "V", "series", False, 2)
 
@@ -230,7 +251,7 @@ def time_figure(ps: PhaseSeries, cfg: Config) -> dict:
     fig.layout[ax(y_rate)].update(title={"text": lab["rate_short"]}, range=padded(ps.V_month, 0.06))
 
     # Provisional zone: shaded, labelled in the gap between the rows (no data there).
-    x_end = month_after(x[-1], 9)
+    x_end = axis_end(x[-1], 9)
     row1 = fig.layout["yaxis"].domain
     row2 = fig.layout[ax(y_rate)].domain
     gap_mid = (row1[0] + row2[1]) / 2
@@ -279,17 +300,21 @@ def readout(ps: PhaseSeries, cfg: Config) -> dict:
     last = ps.periods[-1]
     w = ps.window
     fetched = date.fromisoformat(ps.fetched) if ps.fetched else None
-    month_name = month_label(last, short=False).split()[0]
     window = f"{month_label(w['start'])} to {month_label(w['end'])}"
     notes = []
-    if ps.has_seasonal_cycle:
+    if ps.weekly and ps.has_seasonal_cycle:
+        notes.append(f"Anomaly: against the seasonal cycle of {window}, a mean plus "
+                     f"{w['harmonics']} annual harmonics fitted to the weeks.")
+        notes.append("Each point is a week, named by its middle day (Wednesday); the rate is per month.")
+    elif ps.has_seasonal_cycle:
+        month_name = month_label(last, short=False).split()[0]
         notes.append(f"Anomaly: against the {window} average for {month_name}.")
     if ds.quantity == "record_mean":
         notes.append(f"Sea level is relative to its {window} mean.")
-    notes.append(f"The rate and the last {cfg.filter.provisional_months} months of the loop "
+    notes.append(f"The rate and the last {provisional_span(ps, cfg)} of the loop "
                  f"are provisional: they will change as new data arrive.")
     return {
-        "month": month_label(last, short=False),
+        "month": ("Week centred on " if ps.weekly else "") + month_label(last, short=False),
         "observed_label": f"{lab['value_short']}, observed",
         "observed": f"{fmt(float(ps.observed[-1]), sv)} {ds.unit}",
         "anomaly": (f"{fmt(float(ps.observed_anomaly[-1]), sv, signed=True)} {ds.unit}"
@@ -308,8 +333,11 @@ def readout(ps: PhaseSeries, cfg: Config) -> dict:
 
 
 def events(ps: PhaseSeries, cfg: Config) -> list[dict]:
+    """Each event as the first and last sample inside its months (for a
+    weekly record: the first week in its first month, the last in its last)."""
     out = []
-    first, last = ps.periods[0], ps.periods[-1]
+    months = [q[:7] for q in ps.periods]
+    first, last = months[0], months[-1]
     for ev in cfg.events:
         end = ev.end or last
         if end < first or ev.start > last:
@@ -318,11 +346,20 @@ def events(ps: PhaseSeries, cfg: Config) -> list[dict]:
         running = " (running)" if ev.end is None else ""
         out.append({
             "label": ev.label,
-            "i0": ps.periods.index(start),
-            "i1": ps.periods.index(end),
+            "i0": next(i for i, q in enumerate(months) if q >= start),
+            "i1": max(i for i, q in enumerate(months) if q <= end),
             "range": f"{month_label(start)} to {month_label(end)}{running}",
         })
     return out
+
+
+def play_info(ps: PhaseSeries) -> dict:
+    """What the animation needs, in loop points: a speed unit (a month, or a
+    week), a sample, the 12-month tail; and the speed choices in that unit."""
+    s = SPEEDS["weekly" if ps.weekly else "monthly"]
+    return {"unit": ps.ndots, "step": ps.ndots, "tail": ps.recent * ps.ndots,
+            "unit_name": s["unit"], "speed_default": s["default"],
+            "speeds": [{"value": str(v), "label": f"{v} {s['unit']}s/s"} for v in s["values"]]}
 
 
 def build_dataset(cfg: Config, key: str) -> dict:
@@ -338,15 +375,19 @@ def build_dataset(cfg: Config, key: str) -> dict:
         "ndots": ps.ndots,
         "provisional_from": first_provisional(ps, cfg),
         "provisional_months": cfg.filter.provisional_months,
+        "provisional_samples": provisional_samples(ps, cfg),
+        "provisional_span": provisional_span(ps, cfg),
+        "cadence": ps.cadence,
         "recent_months": RECENT_MONTHS,
-        "window": f"{month_label(w['start'])} to {month_label(w['end'])}, {w['n_months']} months",
+        "window": (f"{month_label(w['start'])} to {month_label(w['end'])}, "
+                   + (f"{w['n_weeks']} weeks" if ps.weekly else f"{w['n_months']} months")),
         "gap_filled_months": int(ps.gap_filled.sum()),
         "loop": {"x": rnd(ps.T, dv), "y": rnd(ps.V, dr)},
         "now": readout(ps, cfg),
         "events": events(ps, cfg),
-        # Animation, in loop points: per speed unit (a month), per sample (a month),
-        # and the tail behind the dot (12 months).
-        "play": {"unit": ps.ndots, "step": ps.ndots, "tail": RECENT_MONTHS * ps.ndots},
+        # Animation, in loop points: per speed unit (a month, or a week), per
+        # sample, and the tail behind the dot (12 months).
+        "play": play_info(ps),
         "figures": {"phase": phase_figure(ps, cfg), "time": time_figure(ps, cfg)},
     }
 
@@ -391,7 +432,12 @@ loop and shaded in the time panel (METHODS.md in the repository explains
 how long it is and why).</p>
 <p>Drag across the time series to highlight a period; double-click or Clear
 removes it. Hover either view to find the same month in the other.</p>
-<p>Play draws the loop through time: a dot moves month by month, the last
+<p>NINO1+2 weekly is NOAA's weekly OISST analysed the same way in weekly
+units: a point per week (named by its Wednesday), the cutoffs in weeks, the
+rate still per month, and the provisional end of the same length in time
+(43 weeks). Its seasonal cycle is a fit of four annual harmonics.</p>
+<p>Play draws the loop through time: a dot moves month by month (week by week
+for NINO1+2 weekly, with its speeds in weeks per second), the last
 12 months trail behind it in red, and the path it has drawn builds up
 behind. The time panel marks the same month. With an El Niño (or a dragged
 period) highlighted, Play runs only that period. The slider moves to any
@@ -399,11 +445,11 @@ month; the reset button returns to the whole record.</p>
 """
 
 
-# Animation speeds, in months per second. 6: the whole record in under two
-# minutes, an El Niño in about three seconds.
+# The speeds the page starts with (monthly); site.js swaps in the weekly ones
+# (weeks per second) when a weekly dataset is chosen (data.play.speeds).
 MONTH_SPEEDS = Player(
-    speeds=[Option(str(v), f"{v} months/s") for v in (3, 6, 12, 24, 48)],
-    default="6", unit="month",
+    speeds=[Option(str(v), f"{v} months/s") for v in SPEEDS["monthly"]["values"]],
+    default=SPEEDS["monthly"]["default"], unit="month",
 )
 
 
