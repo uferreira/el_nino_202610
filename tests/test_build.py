@@ -198,7 +198,13 @@ def test_weekly_phase_data_is_in_weeks_with_a_43_week_provisional_zone(site):
     data = _phase(site, "nino12w")
     n = len(data["periods"])
     assert (data["ndots"], data["play"]["unit"], data["play"]["step"], data["play"]["tail"]) == (1, 1, 1, 52)
-    assert data["periods"][0] == "1981-11-04" and data["periods"][-1] == str(weekly.read().week[-1])
+    # The window ends at the latest week and spans whole years (to within a week on the mean
+    # year), so its start moves one week with every new week: never test a fixed start date.
+    d0, d1 = np.datetime64(data["periods"][0]), np.datetime64(data["periods"][-1])
+    assert d1 == np.datetime64(str(weekly.read().week[-1]))
+    span = int((d1 - d0).astype(int)) + 7
+    years = round(span / 365.2425)
+    assert years >= 40 and abs(span - years * 365.2425) <= 7
     assert PW == 43 and data["provisional_from"] == n - 43 and data["provisional_span"] == "43 weeks"
     assert len(data["loop"]["x"]) == n and data["window"].endswith(f"{n} weeks")
     # weekly dates, one Wednesday per week
@@ -226,7 +232,14 @@ def test_weekly_readout_names_the_week_and_the_provisional_zone(site):
 def test_weekly_events_cover_the_same_months_as_monthly(site):
     w, m = _phase(site, "nino12w"), _phase(site, "nino12")
     assert [e["label"] for e in w["events"]] == [e["label"] for e in m["events"]]
-    assert [e["range"] for e in w["events"]] == [e["range"] for e in m["events"]]
+    for ew, em in zip(w["events"], m["events"]):
+        if "running" in em["range"]:
+            # A running event ends at each record's latest sample, and the weekly record is
+            # often a month ahead of NOAA's monthly file: same start, both still running.
+            assert "running" in ew["range"]
+            assert ew["range"].split(" to ")[0] == em["range"].split(" to ")[0]
+        else:
+            assert ew["range"] == em["range"]
     for e in w["events"]:           # about 4.35 weeks per month
         assert e["i1"] > e["i0"]
 
@@ -240,13 +253,16 @@ def test_compare_weekly_record_has_a_calendar_map(site):
     w, f = _load(site, "data/compare/nino12w.json"), _load(site, "data/compare/frame.json")
     k = f["play"]["step"]
     m = _load(site, "data/compare/nino12.json")
-    assert w["weekly"] is True and m["cal_last"] == (len(f["calendar"]) - 1) * k    # monthly ends with its month
-    # The weekly record ends a little after the middle of the last month: the calendar's points
-    # run on to the one that shows its last week, and no further.
-    assert w["cal_last"] > m["cal_last"] and w["cal_last"] - m["cal_last"] < k
-    assert len(w["cal_map"]) == w["cal_last"] + 1
+    assert w["weekly"] is True and m["cal_last"] % k == 0     # monthly ends on a month point
+    # The calendar's last month is the latest month of either record, and the play points run on
+    # to the one that shows the record ending last (within one month step of that month). Which
+    # record ends last changes through the month: weekly is ahead until NOAA posts the month.
+    last = (len(f["calendar"]) - 1) * k
+    assert last - k < max(w["cal_last"], m["cal_last"]) < last + k
+    # cal_map covers the play points up to the calendar's end; after the last week it holds that week.
     cal = np.array(w["cal_map"])
-    assert cal[0] == -1 and (np.diff(cal) >= 0).all() and cal[-1] == len(w["periods"]) - 1
+    assert len(cal) >= w["cal_last"] + 1 and (cal[w["cal_last"]:] == len(w["periods"]) - 1).all()
+    assert cal[0] == -1 and (np.diff(cal) >= 0).all()
     assert cal[-2] < cal[-1] or cal[-2] == cal[-1]
     assert _load(site, "data/compare/model.json")["cal_last"] is None
     # each calendar point (k per month, the first at mid-month) shows the week nearest its date
@@ -255,7 +271,12 @@ def test_compare_weekly_record_has_a_calendar_map(site):
         assert abs((np.datetime64(w["periods"][cal[i]]) - day).astype(int)) <= 4
     assert w["play"] == {"step": 1, "tail": 52}
     assert _load(site, "data/compare/nino12.json")["cal_map"] is None            # monthly: unchanged
-    assert f["calendar"][0] == "1975-11" and f["calendar"][-1] == _phase(site, "nino12")["periods"][-1]
+    # The calendar covers every record (starts at or before the monthly window, which moves a
+    # month with each new month) and ends at the latest month of either NINO1+2 record (the weekly
+    # one is often a month ahead of NOAA's monthly file).
+    monthly = _phase(site, "nino12")["periods"]
+    assert f["calendar"][0] <= monthly[0]
+    assert f["calendar"][-1] == max(monthly[-1], _phase(site, "nino12w")["periods"][-1][:7])
 
 
 def test_compare_weekly_and_monthly_nino12_share_the_normalised_plane(site):
