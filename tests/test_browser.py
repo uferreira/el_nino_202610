@@ -4,7 +4,9 @@ Skipped when Playwright or its Chromium is not installed. ENSO_CPU_THROTTLE=6
 runs them on a 6 times slower CPU, as a check that no test depends on speed.
 """
 
+import datetime
 import functools
+import json
 import http.server
 import threading
 
@@ -556,7 +558,9 @@ def test_changing_between_monthly_and_weekly_while_playing_keeps_the_month(brows
     page.select_option("select[name='ds']", "nino12w")
     _idle(page)
     page.wait_for_timeout(200)
-    assert page.text_content("[data-player-label]") == "4 Nov 1981" and _pos(page) == 0
+    # The weekly window's first week moves one week with every new week: read it from the data.
+    first = datetime.date.fromisoformat(json.loads((site / "data/phase/nino12w.json").read_text())["periods"][0])
+    assert page.text_content("[data-player-label]") == f"{first.day} {first:%b %Y}" and _pos(page) == 0
     assert errors == []
 
 
