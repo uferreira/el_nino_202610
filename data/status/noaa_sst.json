@@ -2,29 +2,29 @@
  "source_type": "noaa_sst",
  "datasets": {
   "nino12": {
-   "last_attempt": "2026-11-21",
+   "last_attempt": "2026-11-26",
    "last_result": "SAME",
-   "checked": "2026-11-21"
+   "checked": "2026-11-26"
   },
   "nino12w": {
-   "last_attempt": "2026-11-21",
-   "last_result": "SAME",
-   "checked": "2026-11-21"
+   "last_attempt": "2026-11-26",
+   "last_result": "OK",
+   "checked": "2026-11-26"
   },
   "nino3": {
-   "last_attempt": "2026-11-21",
+   "last_attempt": "2026-11-26",
    "last_result": "SAME",
-   "checked": "2026-11-21"
+   "checked": "2026-11-26"
   },
   "nino34": {
-   "last_attempt": "2026-11-21",
+   "last_attempt": "2026-11-26",
    "last_result": "SAME",
-   "checked": "2026-11-21"
+   "checked": "2026-11-26"
   },
   "nino4": {
-   "last_attempt": "2026-11-21",
+   "last_attempt": "2026-11-26",
    "last_result": "SAME",
-   "checked": "2026-11-21"
+   "checked": "2026-11-26"
   }
  }
 }
